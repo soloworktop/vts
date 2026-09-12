@@ -1,0 +1,45 @@
+# Docker 构建上下文排除清单（构建上下文 = 仓库根，见 docker/compose 与 Dockerfile）
+# 只保留构建所需：web-src/（package.json/pnpm-lock.yaml/源码）、src/、pyproject.toml、README.md
+
+# VCS 与本地环境
+.git
+.gitignore
+
+# 依赖与构建产物（运行期/构建期都会重新生成）
+node_modules
+web-src/node_modules
+web-src/dist
+dist
+build
+*.egg-info
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+
+# 运行时数据与密钥（一律不入镜像）
+.env
+data
+output
+output*
+.cache
+llm_profiles.json
+summary_templates.json
+
+# 前端构建产物不入库（构建期由 web-src 重新生成）
+src/video_to_summary/web/static/index.html
+src/video_to_summary/web/static/assets
+
+# 仓库辅助目录（镜像不需要；docker/ 内仅 setup-apt-mirror.sh 需要进入构建上下文，
+# 供 stage2 `COPY docker/setup-apt-mirror.sh` 使用——注意不能用裸 `docker` 排除整个
+# 目录，否则目录被剪枝后 `!` 规则无法再把脚本放回来）
+examples
+scripts
+tests
+docs
+.github
+docker/*
+!docker/setup-apt-mirror.sh

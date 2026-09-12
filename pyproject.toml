@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# 发行名 = VTS；import 包名保持 video_to_summary（见 README「命名」一节）
+name = "vts"
+version = "0.1.0"
+description = "VTS — 视频 URL → 结构化 Markdown 笔记（字幕优先，BYOK 任意 OpenAI 兼容端点）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "VTS contributors" }]
+keywords = ["video", "summary", "transcript", "subtitles", "markdown", "yt-dlp", "byok"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+# 基础依赖：装完即是一个完整的 BYOK 产品（Web 控制台 + CLI）。
+# fastapi/uvicorn/python-multipart/aiofiles 曾由 scripts/web.sh 临时安装，现为基础依赖。
+dependencies = [
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "yt-dlp>=2024.1.0",
+    "cryptography>=41.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "python-multipart>=0.0.6",
+    "aiofiles>=23.0.0",
+]
+
+[project.optional-dependencies]
+# requests 供 tests/e2e 顶层 import：必须在 dev 里，否则只装 [dev] 时
+# `python -m pytest -q`（testpaths 含 tests/e2e）收集期即 ModuleNotFoundError
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.24.0",
+    "requests>=2.0.0",
+]
+# e2e：真实 uvicorn + 进程内 fakes，浏览器用例需 playwright chromium（未装则跳过）
+e2e = [
+    "playwright>=1.40",
+    "requests>=2.0.0",
+]
+
+[project.scripts]
+vts = "video_to_summary.main:main"
+
+[project.urls]
+Homepage = "https://github.com/vts-project/vts"
+Issues = "https://github.com/vts-project/vts/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# setuptools 的 package-data glob 不递归：`web/static/*` 只匹配顶层文件，`assets/`
+# 子目录（构建产物的 JS/CSS）必须显式列出，否则非 editable 安装时 assets/ 不进包 →
+# Docker 运行时 /static/assets/* 404 → 首页白屏。tests/test_packaging.py 有静态
+# 一致性门禁防回归（新增 web/static 子目录时必须同步这里的模式）。
+video_to_summary = ["web/static/*", "web/static/assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "network: 需要联网的集成验证（默认跳过，用 -m network 或 VTS_NETWORK_TESTS=1 运行）",
+    "e2e: 端到端测试（真实 uvicorn + fakes 替换网络边界；浏览器用例需 playwright install chromium）",
+]

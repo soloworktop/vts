@@ -1,0 +1,52 @@
+name: OSS Guard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  oss-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package (dev + e2e)
+        # 含 e2e extra（playwright/requests）并安装 chromium 浏览器；
+        # 否则 tests/e2e/conftest.py 在缺 playwright 时整组 UI 用例静默 skip。
+        run: |
+          python -m pip install -e ".[dev,e2e]"
+          python -m playwright install --with-deps chromium
+
+      - name: Set up pnpm
+        # web-src/package.json 无 packageManager 字段；pnpm-lock.yaml 为 lockfileVersion 9.0
+        # （pnpm 9+ 读写同款格式）。仓库实际以 pnpm 11.x 开发，此处固定 11.8.0 与其对齐。
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.8.0"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # pnpm 11 需要 Node 22+（Node 20 下 pnpm install --frozen-lockfile
+          # 实测报 ERR_UNKNOWN_BUILTIN_MODULE exit 1，勿降回 20）。
+          node-version: "22"
+
+      - name: Build frontend (web-src -> src/video_to_summary/web/static)
+        working-directory: web-src
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Run tests
+        # UI e2e 依赖已构建的前端产物（static/index.html 不入库），
+        # 因此 pytest 必须放在「构建前端」之后。
+        run: python -m pytest -q
+
+      - name: Banned words lint
+        run: python scripts/banned_words_lint.py

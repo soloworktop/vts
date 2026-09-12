@@ -1,0 +1,48 @@
+# ---- Python / 环境 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.so
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- 本仓特有：密钥与运行时数据（禁止入库）----
+# 发布版本号（构建期从 git tag 生成，禁止入库；version.py 缺失时自动回落 git describe）
+src/video_to_summary/_version.py
+# LLM / ASR 的 API Key（BYOK 用户配置）
+.env
+# 旧版 JSON 配置（含明文 Key，迁移来源）
+llm_profiles.json
+summary_templates.json
+# SQLite 库（含加密后的 Key 与历史任务）与其 WAL 伴随文件
+data/
+*.db
+*.db-wal
+*.db-shm
+# 产物输出目录
+output/
+output*/
+# 各类缓存
+.cache/
+
+# ---- 前端（M1）----
+node_modules/
+web-src/dist/
+# React 构建产物不入库（static/ 下的 index.html + assets/；保留 user-guide.html / README.md）
+src/video_to_summary/web/static/index.html
+src/video_to_summary/web/static/assets/
+
+# pnpm 本地存储缓存（构建时落在仓库根的包缓存）
+.pnpm-store/
