@@ -1,0 +1,46 @@
+# 禁词扫描白名单：说明性合法表述逐条登记（格式：路径glob|模式|理由）
+#
+# 规则
+# - 只允许登记"说明性合法表述"（范围宣言 / 本版不提供 / 能力契约键名 / 插件挂载点说明 /
+#   防漂移测试断言 / 用户引导等）。新增模式时必须在本文件登记受影响的合法表述，否则扫描报错。
+# - 禁止用宽泛目录排除代替逐条登记；路径按仓库根相对路径写（支持 fnmatch glob）。
+# - 扫描脚本自身与白名单文件豁免扫描（它们必然包含模式字面量）。
+
+# ---- 官方通道：开源版"本版不提供"的说明性表述 ----
+src/video_to_summary/config.py|官方通道|说明性：开源版不内置任何官方通道（BYOK 自备端点）
+src/video_to_summary/web/app.py|官方通道|说明性：本版不存在官方通道概念
+tests/test_main.py|官方通道|说明性：开源版不再有官方通道相关参数
+tests/test_settings.py|官方通道|说明性：官方通道兼容键已随开源化移除
+
+# ---- 扫码登录：能力位契约 + 本版不提供 + 用户引导 + 防漂移测试 ----
+web-src/src/api/types.ts|扫码登录|契约键名：bilibili_login 能力位说明
+src/video_to_summary/web/app.py|扫码登录|能力契约说明：capabilities 驱动 UI 显隐的注释
+src/video_to_summary/sources/url.py|扫码登录|说明性：开源版不提供站点扫码登录（能力位 false）
+src/video_to_summary/web/static/user-guide.html|扫码登录|用户手册：本版不内置扫码登录
+web-src/src/lib/errors.ts|扫码登录|用户引导：错误提示"本版不内置扫码登录"
+README.md|扫码登录|说明性：本版不内置扫码登录，请用 --cookies
+CONTRIBUTING.md|扫码登录|范围宣言：声明不接受 B 站扫码登录
+tests/test_doc_consistency.py|扫码登录|防漂移测试：断言 README 不得宣传该短语
+tests/test_subtitles.py|扫码登录|说明性：开源版不提供扫码登录，引导指向 cookies 解法
+
+# ---- 模型管理：能力位契约 + 范围宣言 + 防漂移测试 ----
+web-src/src/api/types.ts|模型管理|契约键名：local_asr 能力位说明
+src/video_to_summary/web/static/README.md|模型管理|能力契约说明：模型管理页不渲染
+web-src/README.md|模型管理|能力契约说明：模型管理页不渲染
+CONTRIBUTING.md|模型管理|范围宣言：声明不接受本地模型管理
+tests/test_doc_consistency.py|模型管理|防漂移测试：断言 README 不得宣传该短语
+tests/e2e/test_ui_capabilities.py|模型管理|能力驱动渲染测试：模型管理页默认不渲染
+
+# ---- 用量审计：能力位契约 + 插件挂载点说明 ----
+web-src/src/api/types.ts|用量审计|契约键名：audit 能力位说明
+tests/test_web.py|用量审计|插件挂载点说明：外部构建挂接审计副作用的测试注释
+
+# ---- 试用：范围宣言 / 铁律 / 用户手册 / 误报 ----
+AGENTS.md|试用|铁律第 2 条：核心永不含试用限制
+CONTRIBUTING.md|试用|范围宣言：声明非试用版、无试用到期的降级
+README.md|试用|产品声明：无门控、无试用限制、无功能阉割
+src/video_to_summary/web/static/user-guide.html|试用|用户手册：能力边界（不提供试用限制）
+tests/test_web.py|试用|误报："重试用全局默认"=重试+用，非"试用"
+
+# ---- License 门控：范围宣言 ----
+CONTRIBUTING.md|License 门控|范围宣言：声明永不包含门控
