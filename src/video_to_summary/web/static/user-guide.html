@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VTS 使用指引</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; padding: 28px 32px 48px;
+      font: 15px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: #1c1c22; background: #fbfbfd; max-width: 760px;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e8e8ed; background: #16161a; }
+      code { background: #24242b; }
+      .note { background: #1e2430; border-color: #2c3a52; }
+    }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    h2 { font-size: 16px; margin: 28px 0 8px; }
+    p, li { margin: 6px 0; }
+    ol, ul { padding-left: 22px; }
+    code {
+      background: #eeeef3; border-radius: 4px; padding: 1px 5px;
+      font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .lead { color: #6b6b76; margin-bottom: 4px; }
+    .note {
+      margin: 14px 0; padding: 10px 14px; border: 1px solid #dfe3ec;
+      border-radius: 8px; background: #f4f6fa;
+    }
+    a { color: #3b6ef5; }
+  </style>
+</head>
+<body>
+  <h1>VTS 使用指引</h1>
+  <p class="lead">视频 URL → 结构化 Markdown 笔记。本页是 VTS 自带的极简说明。</p>
+
+  <h2>1. 最快的路径：自带字幕的视频</h2>
+  <p>
+    把视频链接粘到「新建总结」即可。<strong>视频自带字幕（人工或平台自动字幕）时，
+    VTS 直接使用字幕文本出笔记，不下载音频、不调用任何转写接口、零 API 成本</strong>，
+    也不需要配置任何 Key。
+  </p>
+
+  <h2>2. 想生成总结：配置你自己的 LLM（BYOK）</h2>
+  <p>
+    本版不自带任何模型通道，请自备任意 <strong>OpenAI 兼容</strong>端点。配置方式有两条：
+  </p>
+  <ul>
+    <li>界面：「设置 → LLM 配置」，两个槽位——<strong>推理模型</strong>（生成总结，
+      开启文本润色时也用它）与<strong>语音识别模型</strong>（视频没有字幕时转写音频），
+      各填 <code>base_url</code> / <code>api_key</code> / <code>model</code>；</li>
+    <li>环境变量：<code>LLM_API_KEY</code> / <code>LLM_BASE_URL</code> / <code>LLM_MODEL</code>
+      与 <code>OPENAI_API_KEY</code> / <code>ASR_BASE_URL</code> / <code>ASR_MODEL</code>
+      （写入仓库根目录的 <code>.env</code> 后重启服务即生效）；</li>
+    <li>HTTP 接口：<code>GET / PUT /api/v1/llm</code> 读写两个槽位
+      （<code>base_url</code> / <code>api_key</code> / <code>model</code>）。
+      Key 以 Fernet 加密落库，接口只回掩码值。</li>
+  </ul>
+  <div class="note">
+    <strong>不配置也能用。</strong>未配置 Key 时任务不会失败：VTS 仍会产出转写原文
+    （<code>.txt</code> / <code>.srt</code>），只是跳过总结步骤并在处理过程里标注
+    <code>summarize_skipped</code>。补上 Key 后「重新生成」即可得到完整笔记。
+  </div>
+
+  <h2>3. 视频没有字幕时</h2>
+  <p>
+    需要 Whisper 兼容的转写接口：设置 <code>OPENAI_API_KEY</code>，或在「设置 → LLM 配置」的
+    <strong>语音识别模型</strong>槽位配置一个支持 <code>/audio/transcriptions</code> 的端点。
+  </p>
+
+  <h2>4. 需要登录的内容</h2>
+  <p>
+    本版不内置站点登录集成。请使用 <code>--cookies</code> 指定 cookies 文件，
+    或在「设置 → 网络与访问」里选择「浏览器 cookies」（直接读取本机浏览器的登录态）。
+    两者互斥，显式 cookies 文件优先。
+  </p>
+
+  <h2>5. 能力边界</h2>
+  <p>
+    可选能力由插件声明，以 <code>GET /api/v1/capabilities</code> 为准；本构建不含任何
+    插件，响应为空。产品范围（不做本地模型托管、不做站点登录集成、不做多用户与任何
+    上报机制）详见仓库根的 <code>CONTRIBUTING.md</code>「范围宣言」。
+  </p>
+</body>
+</html>
