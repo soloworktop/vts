@@ -1,0 +1,50 @@
+# VTS 一键自部署（多阶段构建，见同目录 Dockerfile）。
+# 用法：docker compose -f docker/docker-compose.yml up -d --build
+#       （或 bash scripts/docker.sh up）
+# 更省心的版本：仓库根放一个 compose.yaml 即可直接 `docker compose up`；
+# 本文件放在 docker/ 以便所有部署定义集中在同一目录。详见 docker/README.md。
+
+# 固定项目名：不随目录名走（否则在 docker/ 目录下项目名默认为 "docker"，
+# 会与其他同样放在 docker/ 目录的 compose 栈共用项目命名空间，容易误伤）。
+# 项目名决定卷/网络的默认前缀：vts_vts_data / vts_vts_output / vts_default。
+name: vts
+
+services:
+  vts:
+    build:
+      context: ..            # 构建上下文 = 仓库根（需要 web-src/ 与 src/）
+      dockerfile: docker/Dockerfile
+      args:                  # 可选镜像源（默认空 = 官方源；见 README「加速构建（可选）」）
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+        APT_MIRROR: ${APT_MIRROR:-}
+    image: vts:local
+    container_name: vts
+    restart: unless-stopped
+    ports:
+      - "${VTS_PORT:-8080}:8080"
+    environment:
+      # 时区（可选；镜像内置 tzdata）
+      - TZ=${TZ:-Asia/Shanghai}
+      # 服务端口（供 HEALTHCHECK 与容器内 uvicorn 使用；默认 8080）
+      - PORT=8080
+      # --- 以下为可选配置，取消注释后按需填写 ---
+      # 暴露到局域网/公网前必须设置（所有 /api/* 请求需 Bearer Token）
+      # - VIDEO_TO_SUMMARY_TOKEN=change-me
+      # - LLM_API_KEY=sk-xxx
+      # - LLM_BASE_URL=https://api.deepseek.com/v1
+      # - LLM_MODEL=deepseek-chat
+      # 转写（仅当视频没有字幕时才需要）
+      # - OPENAI_API_KEY=sk-xxx
+      # - ASR_BASE_URL=https://your-gateway/v1
+      # - ASR_MODEL=whisper-1
+      # B 站风控（412）解法，详见 docker/README.md「B 站 412 风控」：
+      # - VTS_USER_AGENT=Wget/1.21.3
+      # - VTS_COOKIES_FILE=/data/cookies.txt
+    volumes:
+      - vts_data:/data       # SQLite 库 + enc_key + 模型
+      - vts_output:/output   # 任务产物（.txt / .srt / .summary.md 等）
+
+volumes:
+  vts_data:
+  vts_output:
