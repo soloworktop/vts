@@ -1,0 +1,32 @@
+{
+  "name": "vts-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "VTS Web 控制台前端（React + TypeScript + Vite + Tailwind + TanStack Query）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/copy-build.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
+    "dompurify": "^3.4.15",
+    "marked": "^18.0.12",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.6",
+    "esbuild": "0.21.5",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  }
+}

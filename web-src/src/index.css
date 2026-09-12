@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 视觉样式以 src/styles/style.css（既有设计系统，data-theme 深浅主题）为准；
+   这里只放少量 React 特有的布局微调与 Tailwind 工具类示例。 */
