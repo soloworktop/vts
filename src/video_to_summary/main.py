@@ -3,14 +3,17 @@ import functools
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from .config import DEFAULT_ASR_API_MODEL, Settings, SubtitleConfig
 from .pipeline import run
 from .polishers.llm import LLMTranscriptPolisher
 from .sources.url import URLAudioSource
 from .summarizers.openai import OpenAISummarizer, SUMMARY_TEMPLATES
-from .transcribers.openai_whisper_api import OpenAIWhisperAPITranscriber
+from .transcribers.openai_whisper_api import (
+    MissingASRCredentialsError,
+    OpenAIWhisperAPITranscriber,
+)
 from .utils import configure_logging
 
 
@@ -105,20 +108,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_dotenv()
+    # .env 从**命令执行的当前目录**向上查找（CLI 惯例）。load_dotenv() 无参等价于
+    # 从本文件所在位置向上找——pip 安装后在任意目录使用时，用户自己的 .env 会静默
+    # 失效；usecwd=True 后开发场景（scripts/*.sh 固定 cd 到仓库根执行）行为不变。
+    load_dotenv(find_dotenv(usecwd=True))
     configure_logging()
     args = parse_args(argv)
 
-    # 业务错误走 stderr（脚本/管道友好），不污染 stdout；退出码 2 与 argparse 惯例一致
-    if args.whisper_api and not args.openai_key:
+    settings = Settings.from_mapping(vars(args))
+
+    # 业务错误走 stderr（脚本/管道友好），不污染 stdout；退出码 2 与 argparse 惯例一致。
+    # 必须在 Settings 构造之后检查：__post_init__ 会回落读 OPENAI_API_KEY 环境变量，
+    # 提前检查只看显式参数，会误拒按报错文案设置了环境变量的用户。
+    if settings.whisper_api and not (settings.openai_key or settings.llm_key):
         print(
             "error: --whisper-api requires --openai-key / --llm-key (or OPENAI_API_KEY env)",
             file=sys.stderr,
             flush=True,
         )
         return 2
-
-    settings = Settings.from_mapping(vars(args))
 
     source = URLAudioSource(
         settings.url,
@@ -160,18 +168,24 @@ def main(argv: list[str] | None = None) -> int:
 
     # 字幕优先：不在此处预取元信息/下载音频（那会让 CLI 在有字幕时白下载、
     # 被 412 风控时误失败）。pipeline.run 内部先尝试字幕提取，仅在无字幕时
-    # 才调 source.resolve() 下载，meta 由 pipeline 自取并回填 polisher_title
-    output = run(
-        source,
-        transcriber,
-        summarizer,
-        settings.output_dir,
-        polisher=polisher,
-        subtitle_config=SubtitleConfig(
-            preference=settings.subtitle_preference,
-            language=settings.subtitle_language,
-        ),
-    )
+    # 才调 source.resolve() 下载，meta 由 pipeline 自取并回填 polisher_title。
+    # 无 Key + 无字幕视频：转写阶段抛 MissingASRCredentialsError，转成
+    # stderr 引导 + 退出码 2，而不是让 openai SDK 的裸 traceback 直接冒出。
+    try:
+        output = run(
+            source,
+            transcriber,
+            summarizer,
+            settings.output_dir,
+            polisher=polisher,
+            subtitle_config=SubtitleConfig(
+                preference=settings.subtitle_preference,
+                language=settings.subtitle_language,
+            ),
+        )
+    except MissingASRCredentialsError as exc:
+        print(f"error: {exc}", file=sys.stderr, flush=True)
+        return 2
     print(f"summary -> {output}")
     return 0
 

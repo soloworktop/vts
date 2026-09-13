@@ -242,3 +242,17 @@ def test_language_passed_through(monkeypatch, tmp_path) -> None:
 
     assert calls[0]["language"] == "zh"
     assert calls[0]["model"] == "whisper-1"
+
+
+def test_empty_api_key_fails_fast_without_openai_call(tmp_path) -> None:
+    """api_key 为空时快速失败抛 MissingASRCredentialsError，不触碰 openai 客户端。
+
+    回归锚点：曾把空 Key 传给 openai.OpenAI(...)，SDK 抛裸 "Missing credentials"
+    traceback；现在转写入口显式检查并给可行动引导（CLI/Web 共用该文案）。
+    构造时 Key 为空仍是合法状态（字幕优先路径不调用 transcribe）。
+    """
+    from video_to_summary.transcribers.openai_whisper_api import MissingASRCredentialsError
+
+    transcriber = OpenAIWhisperAPITranscriber(api_key="")
+    with pytest.raises(MissingASRCredentialsError, match="Whisper API Key"):
+        transcriber.transcribe(_audio(tmp_path))

@@ -14,6 +14,7 @@ import pytest
 
 from video_to_summary import main as cli
 from video_to_summary.config import DEFAULT_ASR_API_MODEL
+from video_to_summary.transcribers.openai_whisper_api import MissingASRCredentialsError
 
 
 class _FakeTranscriber:
@@ -156,6 +157,69 @@ def test_whisper_api_missing_key_error_goes_to_stderr(isolated_cli, capsys, monk
     captured = capsys.readouterr()
     assert "error:" in captured.err
     assert captured.out == ""
+
+
+def test_whisper_api_env_key_is_accepted(isolated_cli, monkeypatch):
+    """OPENAI_API_KEY 环境变量等价显式 --openai-key：检查必须在 Settings 回落之后。
+
+    回归锚点：前置检查曾放在 Settings 构造之前只看显式参数，导致按报错文案
+    设置环境变量的用户仍被误拒（文案与行为矛盾）。
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-test")
+    rc = cli.main([
+        "https://example.com/v/1",
+        "--whisper-api",
+    ])
+    assert rc == 0
+    # Settings.__post_init__ 回落的环境变量 Key 传给了转写器
+    assert isolated_cli.last_kwargs["api_key"] == "sk-env-test"
+
+
+def test_no_subtitle_without_key_friendly_error(isolated_cli, capsys, monkeypatch):
+    """无字幕视频 + 无任何 Key：stderr 给可行动引导 + exit 2，不裸抛 SDK traceback。
+
+    有字幕时 transcribe 不会被调用（无 Key 降级仍出 .txt/.srt），本错误只在
+    转写真正发生时抛出（见 MissingASRCredentialsError 文档字符串）。
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def _run(*a, **k):
+        raise MissingASRCredentialsError("该视频没有可用的自带字幕，转写需要 Whisper API Key")
+
+    monkeypatch.setattr(cli, "run", _run)
+    rc = cli.main(["https://example.com/v/1"])
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error:" in captured.err
+    assert "Key" in captured.err
+
+
+def test_dotenv_discovered_from_cwd(tmp_path, monkeypatch):
+    """.env 从**命令执行的当前目录**向上查找，pip 安装用户在自己目录放 .env 必须生效。
+
+    回归锚点：load_dotenv() 无参从本模块文件位置向上找 .env——editable/PyPI 安装后
+    在任意目录使用时，用户自己的 .env 静默失效（README 指引过"写进 .env"）。
+    本测试不打桩 load_dotenv，走真实的 find_dotenv(usecwd=True) 路径。
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-cwd-env\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(cli, "OpenAIWhisperAPITranscriber", _FakeTranscriber)
+    monkeypatch.setattr(cli, "OpenAISummarizer", _FakeSummarizer)
+    monkeypatch.setattr(
+        cli.URLAudioSource,
+        "resolve",
+        lambda self: (Path("a.wav"), type("M", (), {"title": "t", "source_id": "sid"})()),
+    )
+    monkeypatch.setattr(cli, "run", lambda *a, **k: Path("out.summary.md"))
+
+    rc = cli.main(["https://example.com/v/1", "--whisper-api"])
+    assert rc == 0
+    # Key 来自 CWD 的 .env，而非进程环境
+    assert _FakeTranscriber.last_kwargs["api_key"] == "sk-cwd-env"
 
 
 def test_removed_flags_are_rejected(isolated_cli):

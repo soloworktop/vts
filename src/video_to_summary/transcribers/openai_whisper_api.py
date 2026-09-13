@@ -69,6 +69,15 @@ def _is_response_format_rejection(exc: Exception) -> bool:
     return "response_format" in str(exc)
 
 
+class MissingASRCredentialsError(RuntimeError):
+    """无字幕可回退且 Whisper API 未配置凭据：转写无法继续。
+
+    CLI 字幕优先语义下，构造时 api_key 为空是合法状态（有自带字幕的视频
+    完全不需要转写器）；只有视频无字幕、转写真正发生时才抛本错误。
+    消息直接面向用户展示（CLI stderr / Web 任务失败原因），给可行动解法。
+    """
+
+
 class OpenAIWhisperAPITranscriber:
     def __init__(
         self,
@@ -94,6 +103,16 @@ class OpenAIWhisperAPITranscriber:
             from openai import OpenAI  # type: ignore
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("openai package is required for --whisper-api") from exc
+
+        # 无 Key 显式快速失败，不等 openai SDK 抛 "Missing credentials" 的
+        # 裸 traceback：走到这里说明视频没有可用字幕，转写是必经阶段。
+        # （settings 已回落过环境变量，此处空 = CLI 参数与环境变量确实都没有）
+        if not self.api_key:
+            raise MissingASRCredentialsError(
+                "该视频没有可用的自带字幕，转写需要 Whisper API Key："
+                "CLI 传 --openai-key / --llm-key（或设置 OPENAI_API_KEY 环境变量），"
+                "Web 在「设置 → LLM 配置」填写语音识别模型的 Key"
+            )
 
         client_kwargs: dict = {"api_key": self.api_key, "timeout": 300.0, "max_retries": 0}
         if self.base_url:
