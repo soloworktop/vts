@@ -7,13 +7,15 @@ OpenAI 兼容端点）。本文件是**约定与铁律**，不是教程；用户
 
 ```
 src/video_to_summary/            import 包名（发行名是 vts，见 README「命名」）
+├─ main.py                       CLI 入口（`vts` script 指向 main:main）
 ├─ config.py constants.py        配置默认值 / 字符串常量命名空间
 ├─ pipeline.py subtitles.py      编排与字幕解析
+├─ cancel_utils.py version.py    阻塞调用中途取消 / 版本解析
 ├─ sources/                      URL（yt-dlp）+ 本地文件
 ├─ transcribers/                 转写引擎（唯一：OpenAI 兼容 Whisper API）
 ├─ summarizers/ polishers/       摘要与文本优化
 ├─ db.py crypto.py utils.py      存储 / 加密 / 公共工具
-├─ log_export.py                 脱敏诊断日志
+├─ downloader.py log_export.py   时长探测 / 脱敏诊断日志
 └─ web/                          FastAPI 服务
    ├─ app.py                    全部 HTTP 接口
    ├─ tasks.py                  任务状态机（并发/恢复/取消/重试/删除）
@@ -22,9 +24,13 @@ src/video_to_summary/            import 包名（发行名是 vts，见 README�
    ├─ llm_store.py settings_store.py template_store.py label_store.py
    ├─ fts_index.py history_io.py
    └─ static/                   React 前端构建产物（不入库，见 web-src/README.md）
+web-src/                         React 前端源码（React + TS + Vite，pnpm；改前读 web-src/AGENTS.md）
 tests/                          离线全绿为基线；e2e 在 tests/e2e/
-scripts/                        run.sh（CLI）/ web.sh（Web）/ e2e.sh / fetch_ffmpeg.sh
+scripts/                        run.sh（CLI）/ web.sh（Web）/ e2e.sh / docker.sh / fetch_ffmpeg.sh
+                                + banned_words_lint.py（禁词门禁）/ snapshot_openapi.py（接口快照）
 docker/                          Docker 多阶段部署（Dockerfile / compose / README，见 docker/README.md）
+examples/                        用法示例（基础 / 本地音频 / 自定义后端等）
+.github/workflows/oss-guard.yml  CI：构建前端 → pytest → 禁词 lint
 ```
 
 ## 铁律
@@ -44,7 +50,8 @@ docker/                          Docker 多阶段部署（Dockerfile / compose /
    **无 Key 降级**（仍出 `.txt`/`.srt` + `summarize_skipped` 事件 + 配置引导，不允许静默缺产物）。
 6. **密钥不落盘明文**：API Key 一律经 `crypto.py`（Fernet）加密入库，接口只回掩码值；
    `.env` / `data/` / `output*/` 一律 gitignore。
-7. **改接口先改代码，再同步 `README.md` 的接口表**——`tests/test_doc_consistency.py` 会强制双向一致。
+7. **改接口先改代码，再同步 `README.md` 的接口表**——`tests/test_doc_consistency.py`
+   会强制双向一致；`tests/test_openapi_contract.py` 用快照锁住路径集合。
 8. **静态目录覆盖点**：环境变量 `VTS_STATIC_DIR` 指向**含 `index.html` 的目录**时，
    首页 `/` 与 `/static/*` 由该目录提供；未设置或无效（不存在/不是目录/缺 index.html）
    时回落包内 `web/static/` 并打一次 warning（实现见 `web/app.py::_static_dir`）。
@@ -79,6 +86,11 @@ bash scripts/e2e.sh                      # 端到端（真实 uvicorn + fakes；
   `vts.plugins` 入口点的插件包，整套测试仍按干净构建（0 插件）执行，
   插件不得影响本仓测试结论。插件相关行为一律用
   `load_plugins(entries=...)` 显式注入测试（`tests/test_hooks.py`）
+- **接口契约快照**：`tests/test_openapi_contract.py` 断言 OpenAPI 路径集合与
+  `tests/openapi_paths.json` 完全一致（路径参数归一；别名/幽灵路由残留会被拦下）。
+  有意的接口增删改后更新快照并人工 review diff：
+  `VTS_UPDATE_OPENAPI_SNAPSHOT=1 python -m pytest tests/test_openapi_contract.py`
+  或 `python scripts/snapshot_openapi.py`
 - 新增端点/模板/事件时，`README.md` 与对应 `AGENTS.md` 必须同步（有防漂移测试）
 
 ## 存储与数据位置
@@ -90,5 +102,58 @@ bash scripts/e2e.sh                      # 端到端（真实 uvicorn + fakes；
      Windows `%LOCALAPPDATA%\VTS\`、其它 `$XDG_DATA_HOME/vts/` 或 `~/.local/share/vts/`）。
   目录缺失自动创建；创建失败报错提示设置 `VIDEO_TO_SUMMARY_DB`。解析结果经
   `init_db()` 的 `sqlite database ready at ...` INFO 日志可见。
+- 表：`meta`/`llm_profiles`/`llm_routing`/`summary_templates`/`jobs`/`labels`/`job_labels`/
+  `jobs_fts`（v8 全文索引，存产物**派生文本**、可由 `web/fts_index.py` 随时重建）；
+  当前 `SCHEMA_VERSION = 9`
+- **产物**（不入库）：`output/<job_id>/`（Web；`VIDEO_TO_SUMMARY_OUTPUT_DIR` 可覆盖
+  基目录）或 `output/`（CLI），含 `.txt`/`.segments.json`/`.srt`/`.polished.txt`
+  （启用文本优化时）`/.summary.md`；pipeline 按「文件存在即命中缓存」读写，DB 只存路径
+- **加密**：API Key 明文不落盘；`api_key` 存 Fernet 密文（`enc:v1:` 前缀），密钥独立
+  `enc_key` 文件；数据库文件启动时 chmod 0o600
 - 版本号：`get_version()` 优先读 `VIDEO_TO_SUMMARY_VERSION`（外部构建可注入版本号，
   避免写 site-packages 的 `_version.py`），回落 `_version.py` → git describe → 包元数据 → `"dev"`。
+
+## 关键约定与坑（改代码前必读）
+
+- **迁移**：`db._apply_migrations` 执行后**必须无条件写回 schema_version**（否则新库会
+  重复 ALTER）；唯一例外：数据库 schema **高于**本 App 时不回写（防旧版把版本号降级，
+  升级回跳时新版重跑已执行的迁移），经 `db_newer_version()` 暴露给 `/api/v1/health`。
+- **enqueue_job** 需运行中的 asyncio 循环（`asyncio.create_task`，API 上下文中调用），
+  持有强引用防 GC；测试里要 patch。
+- **产物一律原子写**：pipeline 统一 `_atomic_write_text`——「文件存在即命中缓存」语义下
+  半写的文件会被静默当作有效产物，绕过原子写会制造脏缓存。
+- **旧 JSON 迁移路径锚定**：`LEGACY_LLM_FILE`/`LEGACY_TEMPLATE_FILE` 默认 `None` 哨兵 =
+  运行时按数据库目录推导；绝不能改回 CWD 相对路径（曾导致换目录启动时静默继承工作
+  目录下含明文 Key 的同名文件）。导入 Key 一律先 `encrypt_secret`。
+- **打包 glob 不递归**：`pyproject.toml` 的 `package-data` 里 `web/static/*` 只匹配顶层
+  文件，`assets/` 子目录必须显式列出（`web/static/assets/*`）——漏了会导致非 editable
+  安装（如 Docker）下 `/static/assets/*` 404 → 首页白屏；`tests/test_packaging.py`
+  有静态一致性门禁，新增 `web/static` 子目录时同步模式。
+- **字幕提取的两个门控**：① yt-dlp 仅在 `writesubtitles`/`writeautomaticsub`（或
+  `listsubtitles`）开启时才在 extract_info 里返回字幕清单，漏传则清单恒空、所有视频
+  "no usable subtitle"；② B 站轨道内容内联在 `data` 字段（无 `url`），`_pick_track`
+  两种形态都要接受。勿改回 `subtitleslangs` 通配批量下载（YouTube timedtext 对连发
+  请求 429）。
+- **Windows 子进程必带无窗口标志**：GUI 形态 spawn 任何控制台程序（ffmpeg/yt-dlp 内部
+  音频提取的 ffmpeg——库本身不带创建标志）都会弹黑色控制台窗口。包内
+  `subprocess.run/Popen` 一律展开 `utils.subprocess_no_window_kwargs()`；
+  `install_windows_subprocess_guard()` 给全部 `Popen` 兜底注入 `CREATE_NO_WINDOW`
+  （幂等、OR 合并不覆盖显式标志、非 Windows 直通）；`tests/test_windows_no_console.py`
+  防回归。
+- **`[dev]` extra 必含 `requests`**：tests/e2e 顶层 import requests，缺了
+  `python -m pytest -q`（testpaths 含 tests/e2e）在**收集期**即 ModuleNotFoundError。
+
+## Git 工作流
+
+- 一个小提交只做一件事；提交信息用中文，格式 `type: 说明`
+  （`feat`/`fix`/`refactor`/`docs`/`test`/`chore`），详见 `CONTRIBUTING.md`
+- `git add -A` 前检查暂存内容：`.env` / `data/` / `output*/` / `*.db` 不得入库
+  （`.gitignore` 已排除，仍需过目）
+
+## 安全与合规
+
+- 真实 API Key 只放 `.env`（gitignore）；Web 配置的 Key 加密入库，接口只回掩码（铁律 6）
+- 对外暴露前可选设置 `VIDEO_TO_SUMMARY_TOKEN` Bearer 鉴权；CORS 要求写方法带 Origin
+  时与 Host 同源；产物读取有路径逃逸防护（详见 README「HTTP API」）
+- 需要登录态的站点内容由用户自行提供 cookies（CLI `--cookies` / 浏览器 cookies /
+  `VTS_COOKIES_FILE`），仅限个人使用，遵守平台协议
