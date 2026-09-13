@@ -90,30 +90,46 @@ VTS_STATIC_DIR=/path/to/my-frontend bash scripts/web.sh
 
 ## 快速开始
 
-需要 **Python 3.10+**。下载视频需要系统里有 `ffmpeg`（`bash scripts/fetch_ffmpeg.sh` 可自动获取）。
+需要 **Python 3.10+** 和 **ffmpeg**（视频无字幕、需要下载音频转写时用到）：
+
+- macOS：`brew install ffmpeg`
+- Debian / Ubuntu：`sudo apt install ffmpeg`
+- Windows：`winget install Gyan.FFmpeg`（或从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载后加入 PATH）
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate                 # Windows PowerShell：.venv\Scripts\Activate.ps1
 pip install -e .
 bash scripts/web.sh                      # 打开 http://127.0.0.1:8080
 ```
 
-命令行用法：
+> Windows 注意：`scripts/*.sh` 是 bash 脚本，原生 Windows 请直接用
+> `python -m video_to_summary.main`（或使用 WSL）。
+> `scripts/fetch_ffmpeg.sh` 仅供 macOS 打包分发（下载到 `dist/assets/bin/`，不加入
+> PATH），日常使用请用上面的包管理器方式安装 ffmpeg。
+
+命令行用法（`vts` 是安装后自带的命令，等价于 `python -m video_to_summary.main`；完整参数见 `vts --help`）：
 
 ```bash
-python -m video_to_summary.main "<视频链接>"                        # 字幕优先，零 API 成本
-python -m video_to_summary.main "<视频链接>" --summary-template 学术笔记
-python -m video_to_summary.main "<视频链接>" \
-    --llm-key sk-xxx --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat
-bash scripts/run.sh "<视频链接>"                                     # 一键（自动建 venv + 装依赖）
+vts "<视频链接>"
+# 最简用法。视频自带字幕时这一条就够：直接出 Markdown 笔记，不需要任何 Key。
+
+vts "<视频链接>" --summary-template 学术笔记
+# 可选：换总结模板。可选值见 vts --help（通用 / 学术笔记 / 会议纪要 等）。
+
+vts "<视频链接>" --llm-key sk-xxx --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat
+# 可选：接入自己的 LLM 生成总结。参数较长时可写进 .env（见下节），之后仍然只跑第一条。
+
+bash scripts/run.sh "<视频链接>"
+# 嫌手动建环境麻烦：这条会自动建 venv + 装依赖再调用（参数同上）。
 ```
 
-或安装后直接用命令 `vts "<视频链接>"`。
+输出的笔记写在 `output/` 目录（转写原文 `.txt` / 字幕 `.srt` / 总结 `.summary.md`）。
 
 ### 配置 LLM（可选——不配也能出转写文本）
 
-把配置写进仓库根的 `.env`（可从 `.env.example` 复制）：
+把配置写进 `.env`（可从 `.env.example` 复制）。VTS 从**运行命令时所在目录**向上查找
+`.env`——放在你平时执行 `vts` 的目录（或其上层，如家目录）即可，不必在仓库根：
 
 ```ini
 LLM_API_KEY=sk-xxx
@@ -135,19 +151,38 @@ curl -X PUT localhost:8080/api/v1/llm -H 'Content-Type: application/json' \
 
 ### 视频没有字幕时
 
-需要 Whisper 兼容的转写接口，二选一：
+VTS 优先使用视频**自带的字幕**（不下载音频、不调转写接口）。只有视频没有字幕时，
+才需要给它配一个**转写接口**——任何实现了 `/audio/transcriptions` 的 OpenAI 兼容
+端点都可以（OpenAI 官方或第三方/自建）。
+
+**用 OpenAI 官方**（最简单）：把你的 OpenAI Key 写进 `.env` 就完成了：
 
 ```ini
-OPENAI_API_KEY=sk-xxx          # 直接用 OpenAI 的 whisper-1
-ASR_BASE_URL=https://your-gateway/v1   # 或任意实现 /audio/transcriptions 的兼容端点
-ASR_MODEL=whisper-1
+OPENAI_API_KEY=sk-xxx
+```
+
+**用第三方 / 自建端点**：在上面基础上补两行，指向你的端点（Key 仍写在
+`OPENAI_API_KEY` 里，填该端点发给你的 Key——转写没有单独的 Key 变量）：
+
+```ini
+ASR_BASE_URL=https://your-gateway/v1   # 你的转写端点地址
+ASR_MODEL=whisper-1                    # 该端点要求的模型名
+```
+
+**不想改 `.env`**：这些都有对应的命令行参数，跑的时候直接带上即可：
+
+```bash
+vts "<视频链接>" --openai-key sk-xxx
+vts "<视频链接>" --openai-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
 ```
 
 ### 需要登录的内容
 
 B 站 AI/CC 字幕、YouTube 自动字幕与会员内容通常需要登录态。本版不内置站点登录集成，两种方式：
 
-1. `--cookies cookies.txt`（CLI）或环境变量 `VTS_COOKIES_FILE`；
+1. `--cookies cookies.txt`（CLI）或环境变量 `VTS_COOKIES_FILE`。cookies.txt 是
+   Netscape 格式，可用浏览器扩展（如 "Get cookies.txt LOCALLY"）在已登录的浏览器里
+   导出；也可以不导出文件、让 yt-dlp 直接读浏览器登录态：`yt-dlp --cookies-from-browser chrome "<链接>"`；
 2. Web「设置 → 网络与访问」选择「浏览器 cookies」——直接读取本机浏览器的登录态
    （Chrome 系首次读取会弹 macOS 钥匙串授权；Docker 内不可用，请用方式 1）。
 

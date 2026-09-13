@@ -44,30 +44,53 @@ bash scripts/docker.sh up
 
 ### Option B: local venv
 
-Requires **Python 3.10+** and `ffmpeg` on your system
-(`bash scripts/fetch_ffmpeg.sh` can fetch it automatically):
+Requires **Python 3.10+** and **ffmpeg** (needed when a subtitle-less video must be
+downloaded and transcribed):
+
+- macOS: `brew install ffmpeg`
+- Debian / Ubuntu: `sudo apt install ffmpeg`
+- Windows: `winget install Gyan.FFmpeg` (or grab a build from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to PATH)
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate                 # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -e .
 bash scripts/web.sh                      # open http://127.0.0.1:8080
 ```
 
-CLI usage:
+> Windows note: `scripts/*.sh` are bash scripts — on native Windows use
+> `python -m video_to_summary.main` directly (or run under WSL).
+> `scripts/fetch_ffmpeg.sh` is only for macOS app bundling (it downloads to
+> `dist/assets/bin/`, which is not on PATH). For daily use install ffmpeg via a
+> package manager as listed above.
+
+CLI usage (`vts` is installed along with the package, equivalent to
+`python -m video_to_summary.main`; see `vts --help` for all options):
 
 ```bash
-python -m video_to_summary.main "<video-url>"                        # subtitle-first, zero API cost
-python -m video_to_summary.main "<video-url>" --summary-template 学术笔记
-python -m video_to_summary.main "<video-url>" \
-    --llm-key sk-xxx --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat
+vts "<video-url>"
+# The simplest form. If the video has subtitles, this is all you need:
+# you get a Markdown note with no API key at all.
+
+vts "<video-url>" --summary-template 学术笔记
+# Optional: pick a summary template (see vts --help for the list).
+
+vts "<video-url>" --llm-key sk-xxx --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat
+# Optional: bring your own LLM for the summary. Tired of typing? Put it in .env
+# (next section) and go back to the first command.
+
+bash scripts/run.sh "<video-url>"
+# One-liner alternative: creates the venv, installs deps, then runs the CLI.
 ```
 
-Once installed, the `vts` command is also available.
+Output lands in `output/`: transcript `.txt`, subtitles `.srt`, summary `.summary.md`.
 
 ### Configuring an LLM (optional — you get transcripts even without one)
 
-Put defaults in a root `.env` (copy from `.env.example`):
+Put defaults in a `.env` (copy from `.env.example`). VTS searches for `.env`
+**upward from the directory you run the command in** — put it next to where you
+invoke `vts` (or in a parent such as your home directory); it does not have to be
+in a repository root:
 
 ```ini
 LLM_API_KEY=sk-xxx
@@ -91,12 +114,31 @@ add a key and hit "Regenerate" for the full note.
 
 ### Videos without subtitles
 
-A Whisper-compatible transcription endpoint, either of:
+VTS prefers the video's **own subtitles** (no audio download, no transcription call).
+Only when a video has no subtitles does it need a **transcription endpoint** — any
+OpenAI-compatible endpoint implementing `/audio/transcriptions` (OpenAI official,
+third-party, or self-hosted).
+
+**Using OpenAI official** (simplest): put your OpenAI key in `.env` and you're done:
 
 ```ini
-OPENAI_API_KEY=sk-xxx          # directly OpenAI's whisper-1
-ASR_BASE_URL=https://your-gateway/v1   # or any endpoint implementing /audio/transcriptions
-ASR_MODEL=whisper-1
+OPENAI_API_KEY=sk-xxx
+```
+
+**Using a third-party / self-hosted endpoint**: add two more lines pointing at it.
+The key still goes in `OPENAI_API_KEY` — use the key **that endpoint issued to you**
+(there is no separate key variable for transcription):
+
+```ini
+ASR_BASE_URL=https://your-gateway/v1   # your transcription endpoint
+ASR_MODEL=whisper-1                    # model name required by that endpoint
+```
+
+**Prefer CLI flags?** Everything above has a command-line equivalent:
+
+```bash
+vts "<video-url>" --openai-key sk-xxx
+vts "<video-url>" --openai-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
 ```
 
 ### Content behind login
@@ -104,6 +146,10 @@ ASR_MODEL=whisper-1
 No in-app QR-code sign-in is built in. Use `--cookies cookies.txt`, or pick
 "browser cookies" in Settings → Network & Access (reads your local browser's login
 state). The two are mutually exclusive; an explicit cookies file wins.
+
+`cookies.txt` is the Netscape format — export it from a logged-in browser with an
+extension such as "Get cookies.txt LOCALLY", or skip the file entirely and let
+yt-dlp read the browser directly: `yt-dlp --cookies-from-browser chrome "<video-url>"`.
 
 ---
 
