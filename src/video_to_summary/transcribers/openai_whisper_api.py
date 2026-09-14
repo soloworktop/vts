@@ -110,7 +110,7 @@ class OpenAIWhisperAPITranscriber:
         if not self.api_key:
             raise MissingASRCredentialsError(
                 "该视频没有可用的自带字幕，转写需要 Whisper API Key："
-                "CLI 传 --openai-key / --llm-key（或设置 OPENAI_API_KEY 环境变量），"
+                "CLI 传 --asr-key / --summary-key（或设置 ASR_API_KEY 环境变量），"
                 "Web 在「设置 → LLM 配置」填写语音识别模型的 Key"
             )
 

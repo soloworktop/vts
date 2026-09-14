@@ -95,7 +95,7 @@ vts "<video-url>" --summary-template 学术笔记
 # Optional: pick a summary template — see vts --help for the list (the
 # values are the Chinese template names shown in the table above).
 
-vts "<video-url>" --llm-key sk-xxx --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat
+vts "<video-url>" --summary-key sk-xxx --summary-base-url https://api.deepseek.com/v1 --summary-model deepseek-chat
 # Optional: bring your own LLM for the summary. Tired of typing? Put it in .env
 # (next section) and go back to the first command.
 
@@ -126,12 +126,13 @@ Which configuration you need depends on the video:
 Put defaults in a `.env` (copy from `.env.example`). VTS searches for `.env`
 **upward from the directory you run the command in** — put it next to where you invoke
 `vts` (or in a parent such as your home directory); it does not have to be in a repository
-root:
+root. Variables are named per slot; the text slot is the `SUMMARY_*` triplet (legacy
+`LLM_*` / `OPENAI_API_KEY` names are still recognized):
 
 ```ini
-LLM_API_KEY=sk-xxx
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
+SUMMARY_API_KEY=sk-xxx
+SUMMARY_BASE_URL=https://api.deepseek.com/v1
+SUMMARY_MODEL=deepseek-chat
 ```
 
 Or configure via the HTTP API (keys are encrypted at rest; the API only returns masked
@@ -151,16 +152,17 @@ curl -X PUT localhost:8080/api/v1/llm -H 'Content-Type: application/json' \
 ### ASR configuration (transcription, only needed when a video has no subtitles)
 
 Any OpenAI-compatible endpoint implementing `/audio/transcriptions` works for
-transcription. There is no separate key variable; transcription reuses `OPENAI_API_KEY`.
+transcription. The transcription slot uses the same triplet shape:
+`ASR_API_KEY` / `ASR_BASE_URL` / `ASR_MODEL`.
 
-**Using OpenAI official** (simplest): put your OpenAI key in `.env` and you're done:
+**Using OpenAI official** (simplest): put your key in `.env` and you're done:
 
 ```ini
-OPENAI_API_KEY=sk-xxx
+ASR_API_KEY=sk-xxx
 ```
 
 **Using a third-party / self-hosted endpoint**: add two more lines pointing at it. The key
-still goes in `OPENAI_API_KEY` — use the key **that endpoint issued to you**:
+still goes in `ASR_API_KEY` — use the key **that endpoint issued to you**:
 
 ```ini
 ASR_BASE_URL=https://your-gateway/v1   # your transcription endpoint
@@ -170,8 +172,8 @@ ASR_MODEL=whisper-1                    # model name required by that endpoint (d
 **Prefer CLI flags?** Everything above has a command-line equivalent:
 
 ```bash
-vts "<video-url>" --openai-key sk-xxx
-vts "<video-url>" --openai-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
+vts "<video-url>" --asr-key sk-xxx
+vts "<video-url>" --asr-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
 ```
 
 ### Content behind login

@@ -80,8 +80,8 @@ bash scripts/docker.sh up
 | `TZ` | 时区（镜像内置 tzdata） | `Asia/Shanghai` |
 | `VTS_USER_AGENT` | 自定义 yt-dlp User-Agent；B 站 412 解法之一（原理与注意事项见「网络与风控」） | 空 = yt-dlp 默认 UA |
 | `VTS_COOKIES_FILE` | 登录 cookies 文件路径，等价 CLI `--cookies`；B 站 412 解法之一（见「网络与风控」） | 空 |
-| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | BYOK：任意 OpenAI 兼容端点的默认接入信息 | 空 |
-| `OPENAI_API_KEY` / `ASR_BASE_URL` / `ASR_MODEL` | 转写接口（仅当视频没有字幕时需要） | 空 |
+| `SUMMARY_API_KEY` / `SUMMARY_BASE_URL` / `SUMMARY_MODEL` | BYOK：任意 OpenAI 兼容端点的默认接入信息（旧名 `LLM_*` / `OPENAI_API_KEY` 仍被识别） | 空 |
+| `ASR_API_KEY` / `ASR_BASE_URL` / `ASR_MODEL` | 转写接口（仅当视频没有字幕时需要） | 空 |
 | `ASR_RESPONSE_FORMAT` | 转写响应格式（`json`/`text`/`verbose_json`，默认自动降级，详见下节） | 自动降级 |
 
 > 上表均为**运行期**环境变量；构建期镜像源参数（`APT_MIRROR` / `PIP_INDEX_URL` /

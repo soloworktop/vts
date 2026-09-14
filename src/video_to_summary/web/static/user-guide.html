@@ -52,9 +52,10 @@
     <li>界面：「设置 → LLM 配置」，两个槽位——<strong>推理模型</strong>（生成总结，
       开启文本润色时也用它）与<strong>语音识别模型</strong>（视频没有字幕时转写音频），
       各填 <code>base_url</code> / <code>api_key</code> / <code>model</code>；</li>
-    <li>环境变量：<code>LLM_API_KEY</code> / <code>LLM_BASE_URL</code> / <code>LLM_MODEL</code>
-      与 <code>OPENAI_API_KEY</code> / <code>ASR_BASE_URL</code> / <code>ASR_MODEL</code>
-      （写入仓库根目录的 <code>.env</code> 后重启服务即生效）；</li>
+    <li>环境变量：推理槽 <code>SUMMARY_API_KEY</code> / <code>SUMMARY_BASE_URL</code> /
+      <code>SUMMARY_MODEL</code>，转写槽 <code>ASR_API_KEY</code> / <code>ASR_BASE_URL</code> /
+      <code>ASR_MODEL</code>（旧名 <code>LLM_API_KEY</code> / <code>OPENAI_API_KEY</code> 等
+      继续有效，作为兼容别名自动识别；写入仓库根目录的 <code>.env</code> 后重启服务即生效）；</li>
     <li>HTTP 接口：<code>GET / PUT /api/v1/llm</code> 读写两个槽位
       （<code>base_url</code> / <code>api_key</code> / <code>model</code>）。
       Key 以 Fernet 加密落库，接口只回掩码值。</li>
@@ -67,7 +68,8 @@
 
   <h2>3. 视频没有字幕时</h2>
   <p>
-    需要 Whisper 兼容的转写接口：设置 <code>OPENAI_API_KEY</code>，或在「设置 → LLM 配置」的
+    需要 Whisper 兼容的转写接口：设置 <code>ASR_API_KEY</code>（兼容旧名
+    <code>OPENAI_API_KEY</code>），或在「设置 → LLM 配置」的
     <strong>语音识别模型</strong>槽位配置一个支持 <code>/audio/transcriptions</code> 的端点。
   </p>
 

@@ -31,11 +31,11 @@ services:
       # --- 以下为可选配置，取消注释后按需填写 ---
       # 暴露到局域网/公网前必须设置（所有 /api/* 请求需 Bearer Token）
       # - VIDEO_TO_SUMMARY_TOKEN=change-me
-      # - LLM_API_KEY=sk-xxx
-      # - LLM_BASE_URL=https://api.deepseek.com/v1
-      # - LLM_MODEL=deepseek-chat
+      # - SUMMARY_API_KEY=sk-xxx
+      # - SUMMARY_BASE_URL=https://api.deepseek.com/v1
+      # - SUMMARY_MODEL=deepseek-chat
       # 转写（仅当视频没有字幕时才需要）
-      # - OPENAI_API_KEY=sk-xxx
+      # - ASR_API_KEY=sk-xxx
       # - ASR_BASE_URL=https://your-gateway/v1
       # - ASR_MODEL=whisper-1
       # B 站风控（412）解法，详见 docker/README.md「B 站 412 风控」：

@@ -19,15 +19,15 @@ def generate_video_summary(video_url: str, output_dir: Path = Path("output")) ->
     """
     source = URLAudioSource(video_url, output_dir=output_dir, audio_format="mp3")
     transcriber = OpenAIWhisperAPITranscriber(
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        api_key=os.environ.get("ASR_API_KEY", ""),
         base_url=os.environ.get("ASR_BASE_URL") or None,
     )
     summarizer = None
-    if os.environ.get("LLM_API_KEY"):
+    if os.environ.get("SUMMARY_API_KEY"):
         summarizer = OpenAISummarizer(
-            api_key=os.environ["LLM_API_KEY"],
-            model=os.environ.get("LLM_MODEL", ""),
-            base_url=os.environ.get("LLM_BASE_URL") or None,
+            api_key=os.environ["SUMMARY_API_KEY"],
+            model=os.environ.get("SUMMARY_MODEL", ""),
+            base_url=os.environ.get("SUMMARY_BASE_URL") or None,
         )
     return run(source, transcriber, summarizer, output_dir)
 

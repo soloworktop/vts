@@ -39,8 +39,8 @@ SQLite 库路径解析（`db.py::resolve_database_path`，纯函数、可单测�
 
 | 变量 | 语义 |
 |---|---|
-| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 推理模型槽位（总结与文本润色共用）；也可在 Web 设置页配置。Key 兜底序：`OPENAI_API_KEY` → `LLM_API_KEY` |
-| `OPENAI_API_KEY` | 转写 Key（无独立 ASR Key 变量）；未配置 `LLM_API_KEY` 时也作为推理 Key 兜底 |
+| `SUMMARY_API_KEY` / `SUMMARY_BASE_URL` / `SUMMARY_MODEL` | 推理模型槽位（总结与文本润色共用）；也可在 Web 设置页配置。Key 兜底序：`SUMMARY_API_KEY` → `LLM_API_KEY` → `OPENAI_API_KEY` |
+| `ASR_API_KEY` | 转写 Key；兜底序 `ASR_API_KEY` → `OPENAI_API_KEY`（任务期还会跨槽兜底推理 Key）。兼容别名：旧名 `LLM_API_KEY` / `OPENAI_API_KEY` 等仍被识别，命中时日志提示一次更名 |
 | `ASR_BASE_URL` / `ASR_MODEL` | 转写端点与模型（视频没有字幕时；端点需实现 `/audio/transcriptions`） |
 | `ASR_RESPONSE_FORMAT` | 转写响应格式（`json` / `text` / `verbose_json`）。默认先 `verbose_json`（可产出分段/SRT）；端点以 400+`response_format` 拒绝时自动降级 `json` 并打 WARNING；非法值告警后回落默认 |
 | `SUMMARY_TEMPLATE` | 总结模板名的环境变量兜底（默认 `通用`；CLI `--summary-template` 显式传入优先） |

@@ -5,10 +5,10 @@
     python examples/local_audio_summary.py /path/to/audio.mp3
 
 运行前设置环境变量：
-    export OPENAI_API_KEY=sk-xxx     # 转写（OpenAI 兼容 /audio/transcriptions）
-    export LLM_API_KEY=sk-xxx        # 摘要（可留空：则只出转写文本）
-    export LLM_BASE_URL=https://api.deepseek.com/v1
-    export LLM_MODEL=deepseek-chat
+    export ASR_API_KEY=sk-xxx        # 转写（OpenAI 兼容 /audio/transcriptions）
+    export SUMMARY_API_KEY=sk-xxx        # 摘要（可留空：则只出转写文本）
+    export SUMMARY_BASE_URL=https://api.deepseek.com/v1
+    export SUMMARY_MODEL=deepseek-chat
 """
 
 import os
@@ -32,17 +32,17 @@ def main() -> None:
     source = LocalAudioSource(audio_path, title=audio_path.stem)
 
     transcriber = OpenAIWhisperAPITranscriber(
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        api_key=os.environ.get("ASR_API_KEY", ""),
         model=os.environ.get("ASR_MODEL") or "whisper-1",
         base_url=os.environ.get("ASR_BASE_URL") or None,
     )
 
     summarizer = None
-    if os.environ.get("LLM_API_KEY"):
+    if os.environ.get("SUMMARY_API_KEY"):
         summarizer = OpenAISummarizer(
-            api_key=os.environ["LLM_API_KEY"],
-            model=os.environ.get("LLM_MODEL", ""),
-            base_url=os.environ.get("LLM_BASE_URL") or None,
+            api_key=os.environ["SUMMARY_API_KEY"],
+            model=os.environ.get("SUMMARY_MODEL", ""),
+            base_url=os.environ.get("SUMMARY_BASE_URL") or None,
         )
 
     summary_path = run(source, transcriber, summarizer, output_dir)

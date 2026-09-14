@@ -7,8 +7,8 @@
 3. 用自定义提示词替换内置模板。
 
 用法:
-    export ASR_API_KEY=sk-xxx          # 转写端点
-    export LLM_API_KEY=sk-xxx          # 摘要/优化端点
+    export ASR_API_KEY=sk-xxx         # 转写端点
+    export SUMMARY_API_KEY=sk-xxx     # 摘要/优化端点
     python examples/custom_backend.py /path/to/audio.mp3
 """
 
@@ -39,24 +39,24 @@ def main() -> None:
     source = LocalAudioSource(audio_path, title=audio_path.stem)
 
     transcriber = OpenAIWhisperAPITranscriber(
-        api_key=os.environ.get("ASR_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
+        api_key=os.environ.get("ASR_API_KEY", ""),
         model=os.environ.get("ASR_MODEL") or "whisper-1",
         base_url=os.environ.get("ASR_BASE_URL") or None,
     )
 
     polisher = None
     summarizer = None
-    if os.environ.get("LLM_API_KEY"):
+    if os.environ.get("SUMMARY_API_KEY"):
         polisher = LLMTranscriptPolisher(
-            api_key=os.environ["LLM_API_KEY"],
-            model=os.environ.get("LLM_MODEL", ""),
-            base_url=os.environ.get("LLM_BASE_URL") or None,
+            api_key=os.environ["SUMMARY_API_KEY"],
+            model=os.environ.get("SUMMARY_MODEL", ""),
+            base_url=os.environ.get("SUMMARY_BASE_URL") or None,
             prompt_preset="light",
         )
         summarizer = OpenAISummarizer(
-            api_key=os.environ["LLM_API_KEY"],
-            model=os.environ.get("LLM_MODEL", ""),
-            base_url=os.environ.get("LLM_BASE_URL") or None,
+            api_key=os.environ["SUMMARY_API_KEY"],
+            model=os.environ.get("SUMMARY_MODEL", ""),
+            base_url=os.environ.get("SUMMARY_BASE_URL") or None,
             template=CUSTOM_TEMPLATE,
         )
 

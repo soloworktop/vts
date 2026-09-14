@@ -1026,7 +1026,7 @@ async def update_llm_config_api(payload: dict) -> JSONResponse:
 
 @api_post("/llm/import")
 async def import_llm_from_env() -> JSONResponse:
-    """从 ``.env`` 导入 LLM 配置（LLM_API_KEY / OPENAI_API_KEY / *_BASE_URL / *_MODEL）。"""
+    """从 ``.env`` 导入 LLM 配置（SUMMARY_* / ASR_* 三元组；LLM_* / OPENAI_API_KEY 为兼容别名）。"""
     return JSONResponse(import_from_env(dotenv_path=".env"))
 
 

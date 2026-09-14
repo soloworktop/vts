@@ -843,7 +843,7 @@ def test_llm_import_endpoint_reads_dotenv(monkeypatch, tmp_path) -> None:
     environ_snapshot = dict(os.environ)
     monkeypatch.setattr(os, "environ", environ_snapshot)
     (tmp_path / ".env").write_text(
-        "LLM_API_KEY=sk-env-summary\nLLM_BASE_URL=https://env.example/v1\nLLM_MODEL=env-model\n",
+        "SUMMARY_API_KEY=sk-env-summary\nSUMMARY_BASE_URL=https://env.example/v1\nSUMMARY_MODEL=env-model\n",
         encoding="utf-8",
     )
     res = client.post("/api/v1/llm/import")

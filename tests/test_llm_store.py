@@ -62,7 +62,7 @@ def test_import_from_env_keeps_existing_when_no_env_key(store, monkeypatch) -> N
         {"api_key": "EXISTING-REAL-KEY", "base_url": "https://keep.example", "model": "keep-model"},
     )
     # env 只提供 base_url、无任何 Key：不得覆盖既有配置
-    monkeypatch.setattr(llm_store, "_env", lambda: {"LLM_BASE_URL": "https://env.example"})
+    monkeypatch.setattr(llm_store, "_env", lambda: {"SUMMARY_BASE_URL": "https://env.example"})
     llm_store.import_from_env()
     stored = llm_store.get_slot("summary")
     assert stored["api_key"] == "EXISTING-REAL-KEY"
@@ -70,13 +70,14 @@ def test_import_from_env_keeps_existing_when_no_env_key(store, monkeypatch) -> N
 
 
 def test_import_from_env_fills_slots_with_env_key(store, monkeypatch) -> None:
+    """SUMMARY_* / ASR_* 三元组（权威名）：Key 跨槽兜底，asr 端点/模型用 ASR_*。"""
     monkeypatch.setattr(
         llm_store,
         "_env",
         lambda: {
-            "LLM_API_KEY": "NEW-KEY",
-            "LLM_BASE_URL": "https://new.example",
-            "LLM_MODEL": "new-model",
+            "SUMMARY_API_KEY": "NEW-KEY",
+            "SUMMARY_BASE_URL": "https://new.example",
+            "SUMMARY_MODEL": "new-model",
             "ASR_BASE_URL": "https://asr.example",
             "ASR_MODEL": "asr-model",
         },
@@ -87,6 +88,34 @@ def test_import_from_env_fills_slots_with_env_key(store, monkeypatch) -> None:
     assert llm_store.get_slot("summary")["model"] == "new-model"
     assert llm_store.get_slot("asr")["base_url"] == "https://asr.example"
     assert llm_store.get_slot("asr")["model"] == "asr-model"
+
+
+def test_import_from_env_legacy_names_still_fill_slots(store, monkeypatch) -> None:
+    """旧名 LLM_* / OPENAI_API_KEY 经别名链仍导入（跨槽兜底语义不变）。"""
+    monkeypatch.setattr(
+        llm_store,
+        "_env",
+        lambda: {
+            "LLM_API_KEY": "LEGACY-KEY",
+            "LLM_BASE_URL": "https://legacy.example",
+            "LLM_MODEL": "legacy-model",
+        },
+    )
+    result = llm_store.import_from_env()
+    assert result["summary"]["configured"] is True
+    assert result["asr"]["configured"] is True
+    assert llm_store.get_slot("summary")["model"] == "legacy-model"
+
+
+def test_import_from_env_new_name_wins_over_legacy(store, monkeypatch) -> None:
+    """SUMMARY_API_KEY 与 LLM_API_KEY 同时存在时新名优先（兜底链「新名 → 旧专名」）。"""
+    monkeypatch.setattr(
+        llm_store,
+        "_env",
+        lambda: {"SUMMARY_API_KEY": "NEW-KEY", "LLM_API_KEY": "LEGACY-KEY"},
+    )
+    llm_store.import_from_env()
+    assert llm_store.get_slot("summary")["api_key"] == "NEW-KEY"
 
 
 def test_resolve_llm_kwargs_ignores_masked_fallback(store) -> None:

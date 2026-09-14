@@ -4,7 +4,7 @@
 # 用法:
 #   bash scripts/run.sh <视频链接> [CLI 参数...]
 #   bash scripts/run.sh "https://www.youtube.com/watch?v=..." --summary-template 学术笔记
-#   bash scripts/run.sh <视频链接> --whisper-api --openai-key sk-xxx   # 无自带字幕时转写
+#   bash scripts/run.sh <视频链接> --whisper-api --asr-key sk-xxx   # 无自带字幕时转写
 #
 # 字幕优先：视频自带字幕时零 API 成本直接出笔记，无需配置任何 Key。
 set -euo pipefail
@@ -23,7 +23,7 @@ Usage:
 示例:
   bash scripts/run.sh "https://www.youtube.com/watch?v=jNQXAC9IVRw"
   bash scripts/run.sh <视频链接> --summary-template 学术笔记
-  bash scripts/run.sh <视频链接> --whisper-api --openai-key sk-xxx
+  bash scripts/run.sh <视频链接> --whisper-api --asr-key sk-xxx
   bash scripts/run.sh --help          # 查看完整 CLI 参数
 
 常用参数（完整清单见 `python -m video_to_summary.main --help`）:
@@ -32,7 +32,8 @@ Usage:
   --subtitle-preference     字幕策略 auto|manual_only|off（默认 auto）
   --cookies FILE            cookies.txt 路径（需登录的内容）
   --whisper-api             无自带字幕时用 OpenAI 兼容 Whisper API 转写
-  --llm-key / --llm-base-url / --llm-model   BYOK 的 LLM 接入信息
+  --summary-key / --summary-base-url / --summary-model   BYOK 的推理接入信息（总结/润色）
+  --asr-key / --asr-base-url / --asr-model   转写接入信息（视频无字幕时）
 EOF
 }
 

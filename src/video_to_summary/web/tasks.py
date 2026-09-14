@@ -122,7 +122,7 @@ def _build_summarizer(settings, cfg: dict) -> Any:
 
     return OpenAISummarizer(
         api_key=cfg.get("api_key", ""),
-        model=cfg.get("model") or getattr(settings, "llm_model", None) or "",
+        model=cfg.get("model") or settings.summary_model or "",
         base_url=_validate_base_url("summary", cfg.get("base_url")),
         template=_resolve_summary_template(settings.summary_template),
     )
@@ -137,9 +137,9 @@ def _build_transcriber(settings, asr_cfg: dict) -> Any:
     from video_to_summary.transcribers.openai_whisper_api import OpenAIWhisperAPITranscriber
 
     return OpenAIWhisperAPITranscriber(
-        api_key=asr_cfg.get("api_key", "") or settings.openai_key or "",
+        api_key=asr_cfg.get("api_key", "") or settings.asr_key or "",
         model=asr_cfg.get("model") or settings.asr_model or DEFAULT_ASR_API_MODEL,
-        base_url=_validate_base_url("asr", asr_cfg.get("base_url") or settings.llm_base_url),
+        base_url=_validate_base_url("asr", asr_cfg.get("base_url") or settings.summary_base_url),
     )
 
 
@@ -850,17 +850,17 @@ def _run_job_inner(job: Job) -> None:
         cfg = resolve_llm_kwargs_map(
             {
                 "summary": {
-                    "api_key": settings.llm_key or settings.openai_key or "",
-                    "base_url": settings.llm_base_url or "",
-                    "model": settings.llm_model or "",
+                    "api_key": settings.summary_key or settings.asr_key or "",
+                    "base_url": settings.summary_base_url or "",
+                    "model": settings.summary_model or "",
                 },
                 "asr": {
-                    "api_key": settings.openai_key or settings.llm_key or "",
-                    "base_url": settings.asr_base_url or settings.llm_base_url or "",
-                    "model": settings.asr_model or settings.llm_model or "",
+                    "api_key": settings.asr_key or settings.summary_key or "",
+                    "base_url": settings.asr_base_url or settings.summary_base_url or "",
+                    "model": settings.asr_model or settings.summary_model or "",
                 },
                 "polish": {
-                    "api_key": settings.llm_key or settings.openai_key or "",
+                    "api_key": settings.summary_key or settings.asr_key or "",
                     "base_url": settings.polish_base_url or "",
                     "model": settings.polish_model or "",
                 },

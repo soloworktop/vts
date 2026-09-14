@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .. import crypto, db
+from ..config import first_env_value
 
 logger = logging.getLogger("video_to_summary.web.llm_store")
 
@@ -231,20 +232,24 @@ def has_configured_key() -> bool:
 
 
 def import_from_env(dotenv_path: str | None = None) -> dict:
-    """从 ``.env`` 导入两槽位配置；env 未提供 Key 的槽位保持原样（绝不清空）。"""
+    """从 ``.env`` 导入两槽位配置；env 未提供 Key 的槽位保持原样（绝不清空）。
+
+    变量名与 Settings 同链（``config.first_env_value``）：SUMMARY_* / ASR_* 为权威名，
+    LLM_* / OPENAI_API_KEY 为兼容别名；asr 链保留旧版的跨槽兜底语义。
+    """
     if dotenv_path:
         load_dotenv(dotenv_path=Path(dotenv_path))
     env = _env()
 
-    env_key = env.get("LLM_API_KEY") or env.get("OPENAI_API_KEY") or ""
-    if env_key:
+    summary_key = first_env_value(env.get, "SUMMARY_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY") or ""
+    if summary_key:
         save_slot("summary", {
-            "api_key": env_key,
-            "base_url": env.get("LLM_BASE_URL") or "",
-            "model": env.get("LLM_MODEL") or "",
+            "api_key": summary_key,
+            "base_url": first_env_value(env.get, "SUMMARY_BASE_URL", "LLM_BASE_URL") or "",
+            "model": first_env_value(env.get, "SUMMARY_MODEL", "LLM_MODEL") or "",
         })
 
-    asr_key = env.get("OPENAI_API_KEY") or env.get("LLM_API_KEY") or ""
+    asr_key = first_env_value(env.get, "ASR_API_KEY", "OPENAI_API_KEY", "SUMMARY_API_KEY", "LLM_API_KEY") or ""
     if asr_key:
         save_slot("asr", {
             "api_key": asr_key,

@@ -39,8 +39,8 @@ class _HelpFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescrip
 _EPILOG = """示例:
   python -m video_to_summary.main <视频链接>                        # 字幕优先（自带字幕时零 API 成本）
   python -m video_to_summary.main <视频链接> --summary-template 学术笔记
-  python -m video_to_summary.main <视频链接> --llm-key sk-xxx --llm-base-url https://api.example.com/v1 --llm-model gpt-4o-mini
-  python -m video_to_summary.main <视频链接> --whisper-api --openai-key sk-xxx   # 无字幕时用 Whisper API 转写
+  python -m video_to_summary.main <视频链接> --summary-key sk-xxx --summary-base-url https://api.example.com/v1 --summary-model gpt-4o-mini
+  python -m video_to_summary.main <视频链接> --whisper-api --asr-key sk-xxx   # 无字幕时用 Whisper API 转写
 """
 
 
@@ -62,14 +62,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--whisper-api",
         action="store_true",
-        help="使用 OpenAI 兼容 Whisper API 转写（无自带字幕时；需 --openai-key）",
+        help="使用 OpenAI 兼容 Whisper API 转写（无自带字幕时；需 --asr-key）",
     )
-    parser.add_argument("--openai-key", help="OpenAI API Key（Whisper API 转写用）")
+    # 两个槽位的 Key / 端点 / 模型旗标：新名为主推（与环境变量 SUMMARY_* / ASR_* 对称），
+    # 旧名 --llm-* / --openai-key 以同 dest 隐藏别名保留，老命令行不受影响。
+    parser.add_argument("--asr-key", help="转写 API Key（OpenAI 兼容 Whisper API；等价环境变量 ASR_API_KEY）")
+    parser.add_argument("--openai-key", dest="asr_key", help=argparse.SUPPRESS)
     parser.add_argument("--asr-model", help=f"Whisper API 模型名（默认 {DEFAULT_ASR_API_MODEL}）")
     parser.add_argument("--asr-base-url", help="Whisper API Base URL（自建/第三方兼容端点）")
-    parser.add_argument("--llm-key", help="LLM API Key")
-    parser.add_argument("--llm-base-url", help="LLM Base URL")
-    parser.add_argument("--llm-model", help="LLM 模型名称")
+    parser.add_argument("--summary-key", help="推理 API Key（总结与文本润色；等价环境变量 SUMMARY_API_KEY）")
+    parser.add_argument("--llm-key", dest="summary_key", help=argparse.SUPPRESS)
+    parser.add_argument("--summary-base-url", help="推理 API Base URL")
+    parser.add_argument("--llm-base-url", dest="summary_base_url", help=argparse.SUPPRESS)
+    parser.add_argument("--summary-model", help="推理模型名称")
+    parser.add_argument("--llm-model", dest="summary_model", help=argparse.SUPPRESS)
     parser.add_argument("--keep-video", action="store_true", help="保留视频文件")
     parser.add_argument("--cookies", type=Path, help="cookies.txt 路径")
     parser.add_argument("--proxy", help="HTTP/HTTPS 代理")
@@ -118,11 +124,11 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.from_mapping(vars(args))
 
     # 业务错误走 stderr（脚本/管道友好），不污染 stdout；退出码 2 与 argparse 惯例一致。
-    # 必须在 Settings 构造之后检查：__post_init__ 会回落读 OPENAI_API_KEY 环境变量，
-    # 提前检查只看显式参数，会误拒按报错文案设置了环境变量的用户。
-    if settings.whisper_api and not (settings.openai_key or settings.llm_key):
+    # 必须在 Settings 构造之后检查：__post_init__ 会回落读 ASR_API_KEY / OPENAI_API_KEY 等
+    # 环境变量，提前检查只看显式参数，会误拒按报错文案设置了环境变量的用户。
+    if settings.whisper_api and not (settings.asr_key or settings.summary_key):
         print(
-            "error: --whisper-api requires --openai-key / --llm-key (or OPENAI_API_KEY env)",
+            "error: --whisper-api requires --asr-key / --summary-key (or ASR_API_KEY / SUMMARY_API_KEY env)",
             file=sys.stderr,
             flush=True,
         )
@@ -141,27 +147,27 @@ def main(argv: list[str] | None = None) -> int:
     # 字幕优先：视频自带字幕时 pipeline 直接用字幕文本，完全跳过这里构造的转写器
     # （因此没有 Key 也能出 .txt/.srt）；无字幕时才真正调用 Whisper API
     transcriber = OpenAIWhisperAPITranscriber(
-        api_key=settings.openai_key or settings.llm_key or "",
+        api_key=settings.asr_key or settings.summary_key or "",
         model=settings.asr_model or DEFAULT_ASR_API_MODEL,
-        base_url=settings.asr_base_url or settings.llm_base_url,
+        base_url=settings.asr_base_url or settings.summary_base_url,
     )
 
     # BYOK：未提供 Key 时不构造摘要器（pipeline 推 summarize_skipped 事件后
     # 仍产出转写文本），而不是让整个任务失败；仅设 base_url 无 Key 等于没配
     summarizer = None
-    if settings.llm_key or settings.openai_key:
+    if settings.summary_key or settings.asr_key:
         summarizer = OpenAISummarizer(
-            api_key=settings.llm_key or settings.openai_key or "",
-            model=settings.llm_model or "",
-            base_url=settings.llm_base_url,
+            api_key=settings.summary_key or settings.asr_key or "",
+            model=settings.summary_model or "",
+            base_url=settings.summary_base_url,
             template=settings.summary_template,
         )
 
     polisher = None
-    if settings.polish_transcript and (settings.llm_key or settings.openai_key):
+    if settings.polish_transcript and (settings.summary_key or settings.asr_key):
         polisher = LLMTranscriptPolisher(
-            api_key=settings.llm_key or settings.openai_key or "",
-            model=settings.polish_model or settings.llm_model or "",
+            api_key=settings.summary_key or settings.asr_key or "",
+            model=settings.polish_model or settings.summary_model or "",
             base_url=settings.polish_base_url,
             prompt_preset=settings.polish_preset or "default",
         )

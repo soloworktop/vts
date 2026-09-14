@@ -78,7 +78,7 @@ vts "<视频链接>"
 vts "<视频链接>" --summary-template 学术笔记
 # 可选：换总结模板。可选值见 vts --help（通用 / 学术笔记 / 会议纪要 等）。
 
-vts "<视频链接>" --llm-key sk-xxx --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat
+vts "<视频链接>" --summary-key sk-xxx --summary-base-url https://api.deepseek.com/v1 --summary-model deepseek-chat
 # 可选：接入自己的 LLM 生成总结。参数较长时可写进 .env（见下节），之后仍然只跑第一条。
 
 bash scripts/run.sh "<视频链接>"
@@ -106,12 +106,13 @@ bash scripts/run.sh "<视频链接>"
 ### 配置 LLM（生成总结必需）
 
 把配置写进 `.env`（可从 `.env.example` 复制）。VTS 从**运行命令时所在目录**向上查找
-`.env`，放在你平时执行 `vts` 的目录（或其上层，如家目录）即可，不必在仓库根：
+`.env`，放在你平时执行 `vts` 的目录（或其上层，如家目录）即可，不必在仓库根。变量按
+槽位命名，推理槽是 `SUMMARY_*` 三元组（旧名 `LLM_*` / `OPENAI_API_KEY` 仍被识别）：
 
 ```ini
-LLM_API_KEY=sk-xxx
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
+SUMMARY_API_KEY=sk-xxx
+SUMMARY_BASE_URL=https://api.deepseek.com/v1
+SUMMARY_MODEL=deepseek-chat
 ```
 
 也可以走 HTTP 接口配置（Key 加密落库，接口只回掩码值）。LLM 配置只有两个槽位：
@@ -128,16 +129,16 @@ curl -X PUT localhost:8080/api/v1/llm -H 'Content-Type: application/json' \
 
 ### 配置 ASR（转写，仅视频无字幕时需要）
 
-任何实现了 `/audio/transcriptions` 的 OpenAI 兼容端点都可以做转写。转写没有独立的
-Key 变量，统一复用 `OPENAI_API_KEY`。
+任何实现了 `/audio/transcriptions` 的 OpenAI 兼容端点都可以做转写。转写槽位同样是
+三元组：`ASR_API_KEY` / `ASR_BASE_URL` / `ASR_MODEL`。
 
-**用 OpenAI 官方**（最简单）：把你的 OpenAI Key 写进 `.env` 就完成了：
+**用 OpenAI 官方**（最简单）：把你的 Key 写进 `.env` 就完成了：
 
 ```ini
-OPENAI_API_KEY=sk-xxx
+ASR_API_KEY=sk-xxx
 ```
 
-**用第三方 / 自建端点**：在上面基础上补两行，指向你的端点；Key 仍写在 `OPENAI_API_KEY`，
+**用第三方 / 自建端点**：在上面基础上补两行，指向你的端点；Key 仍写在 `ASR_API_KEY`，
 填该端点发给你的 Key：
 
 ```ini
@@ -148,8 +149,8 @@ ASR_MODEL=whisper-1                    # 该端点要求的模型名，未设置
 **不想改 `.env`**：这些都有对应的命令行参数，跑的时候直接带上即可：
 
 ```bash
-vts "<视频链接>" --openai-key sk-xxx
-vts "<视频链接>" --openai-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
+vts "<视频链接>" --asr-key sk-xxx
+vts "<视频链接>" --asr-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
 ```
 
 ### 需要登录的内容

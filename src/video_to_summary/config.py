@@ -3,7 +3,7 @@ import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from .constants import SubtitlePreference
 
@@ -26,6 +26,37 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+# 环境变量更名（槽位对称三元组）：推理槽 SUMMARY_API_KEY / SUMMARY_BASE_URL / SUMMARY_MODEL，
+# 转写槽 ASR_API_KEY / ASR_BASE_URL / ASR_MODEL。旧名 LLM_* / OPENAI_API_KEY 长期保留为
+# 兼容别名，兜底链统一为「新名 → 旧专名 → 通用旧名」；命中旧名时打一次 INFO 提示新名
+#（进程内每个旧名至多一次，Web 常驻进程不刷屏）。
+_LEGACY_ENV_HINTS: dict[str, str] = {
+    "LLM_API_KEY": "SUMMARY_API_KEY",
+    "LLM_BASE_URL": "SUMMARY_BASE_URL",
+    "LLM_MODEL": "SUMMARY_MODEL",
+    "OPENAI_API_KEY": "SUMMARY_API_KEY（推理）或 ASR_API_KEY（转写）",
+}
+_legacy_env_hinted: set[str] = set()
+
+
+def first_env_value(lookup: Callable[[str], Optional[str]], *names: str) -> Optional[str]:
+    """按序返回 lookup 中第一个非空的变量值；命中旧名时提示一次新名。
+
+    Settings.__post_init__（``os.environ.get``）与 ``web/llm_store.import_from_env``
+    （.env 合并后的 dict）共用，保证两条路径的别名兜底顺序一致。
+    """
+    for name in names:
+        value = lookup(name)
+        if not value:
+            continue
+        hint = _LEGACY_ENV_HINTS.get(name)
+        if hint and name not in _legacy_env_hinted:
+            _legacy_env_hinted.add(name)
+            logger.info("环境变量 %s 已更名为 %s（旧名继续有效，建议迁移）", name, hint)
+        return value
+    return None
 
 
 # VTS_USER_AGENT：非空时作为 yt-dlp 的 user_agent 并写入 http_headers["User-Agent"]
@@ -103,10 +134,12 @@ class Settings:
     url: str
     output_dir: Path = Path("output")
     whisper_api: bool = False
-    openai_key: Optional[str] = None
-    llm_key: Optional[str] = None
-    llm_base_url: Optional[str] = None
-    llm_model: Optional[str] = None
+    # 转写槽位 Key：环境变量 ASR_API_KEY（兼容别名 OPENAI_API_KEY）
+    asr_key: Optional[str] = None
+    # 推理槽位 Key（总结与文本润色共用）：环境变量 SUMMARY_API_KEY（兼容别名 LLM_API_KEY）
+    summary_key: Optional[str] = None
+    summary_base_url: Optional[str] = None
+    summary_model: Optional[str] = None
     keep_video: bool = False
     cookies: Optional[Path] = None
     # 直接从本机浏览器读取登录 cookies（yt-dlp cookies-from-browser；空 = 不使用）。
@@ -157,18 +190,21 @@ class Settings:
         return cls(**data)
 
     def __post_init__(self) -> None:
-        if not self.openai_key:
-            self.openai_key = os.environ.get("OPENAI_API_KEY")
-        if not self.llm_key:
-            self.llm_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY")
-        if not self.llm_base_url:
-            self.llm_base_url = os.environ.get("LLM_BASE_URL")
-        if not self.llm_model:
-            self.llm_model = os.environ.get("LLM_MODEL")
+        # Key / 端点兜底链「新名 → 旧专名 → 通用旧名」（见 first_env_value）。
+        # asr_key 只回落通用旧名 OPENAI_API_KEY；跨槽兜底（转写无 Key 时用推理 Key）
+        # 在使用点以 `asr_key or summary_key` 表达，与旧结构同构。
+        if not self.asr_key:
+            self.asr_key = first_env_value(os.environ.get, "ASR_API_KEY", "OPENAI_API_KEY")
+        if not self.summary_key:
+            self.summary_key = first_env_value(os.environ.get, "SUMMARY_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY")
+        if not self.summary_base_url:
+            self.summary_base_url = first_env_value(os.environ.get, "SUMMARY_BASE_URL", "LLM_BASE_URL")
+        if not self.summary_model:
+            self.summary_model = first_env_value(os.environ.get, "SUMMARY_MODEL", "LLM_MODEL")
         if not self.polish_model:
             self.polish_model = os.environ.get("POLISH_MODEL")
         if not self.polish_base_url:
-            self.polish_base_url = os.environ.get("POLISH_BASE_URL") or self.llm_base_url
+            self.polish_base_url = os.environ.get("POLISH_BASE_URL") or self.summary_base_url
         if not self.polish_preset:
             self.polish_preset = os.environ.get("POLISH_PRESET")
         if not self.asr_model:
