@@ -50,8 +50,9 @@ examples/                        用法示例（基础 / 本地音频 / 自定�
    **无 Key 降级**（仍出 `.txt`/`.srt` + `summarize_skipped` 事件 + 配置引导，不允许静默缺产物）。
 6. **密钥不落盘明文**：API Key 一律经 `crypto.py`（Fernet）加密入库，接口只回掩码值；
    `.env` / `data/` / `output*/` 一律 gitignore。
-7. **改接口先改代码，再同步 `README.md` 的接口表**——`tests/test_doc_consistency.py`
-   会强制双向一致；`tests/test_openapi_contract.py` 用快照锁住路径集合。
+7. **改接口先改代码，再同步 `docs/api.md` 的接口表**（`README.md`「参考」只留指引）——
+   `tests/test_doc_consistency.py` 锚点聚合读 `README.md` + `docs/api.md` 强制双向一致；
+   `tests/test_openapi_contract.py` 用快照锁住路径集合。
 8. **静态目录覆盖点**：环境变量 `VTS_STATIC_DIR` 指向**含 `index.html` 的目录**时，
    首页 `/` 与 `/static/*` 由该目录提供；未设置或无效（不存在/不是目录/缺 index.html）
    时回落包内 `web/static/` 并打一次 warning（实现见 `web/app.py::_static_dir`）。
@@ -91,7 +92,8 @@ bash scripts/e2e.sh                      # 端到端（真实 uvicorn + fakes；
   有意的接口增删改后更新快照并人工 review diff：
   `VTS_UPDATE_OPENAPI_SNAPSHOT=1 python -m pytest tests/test_openapi_contract.py`
   或 `python scripts/snapshot_openapi.py`
-- 新增端点/模板/事件时，`README.md` 与对应 `AGENTS.md` 必须同步（有防漂移测试）
+- 新增端点/模板/事件时，`docs/api.md`（接口表）/ `README.md`（模板清单）与对应
+  `AGENTS.md` 必须同步（有防漂移测试）
 
 ## 存储与数据位置
 

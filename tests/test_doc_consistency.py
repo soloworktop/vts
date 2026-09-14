@@ -3,12 +3,12 @@
 本仓不带内部战略/规划文档集（内部文档不入库），因此本文件的校验面收敛为
 **仓库内自洽**的部分：
 
-- ``README.md`` 的接口表 ↔ ``web/app.py`` 的真实路由清单（双向）
+- ``README.md`` + ``docs/api.md`` 的接口表 ↔ ``web/app.py`` 的真实路由清单（双向）
 - ``README.md`` 列出的内置模板 ↔ ``summarizers/openai.py`` 的 ``SUMMARY_TEMPLATES``
 - ``README.md`` 文档化的 ``/api/v1/capabilities`` 语义 ↔ ``web/capabilities.py``
   的 ``current_capabilities()``（插件声明聚合；核心不预置，本构建为 ``{}``）
 
-改动影响本测试时的正确顺序：**先改代码 → 同步 README/AGENTS → 测试通过**。
+改动影响本测试时的正确顺序：**先改代码 → 同步 docs/README/AGENTS → 测试通过**。
 """
 
 import re
@@ -46,8 +46,12 @@ def _app_routes() -> set[str]:
 
 
 def _readme_routes() -> set[str]:
-    """README 接口表里出现的 /api/v1 路径（支持 ``GET, HEAD`` 这类多方法写法）。"""
-    text = _read("README.md")
+    """README/docs 接口表里出现的 /api/v1 路径（支持 ``GET, HEAD`` 这类多方法写法）。
+
+    接口表自 Phase 2 起权威维护于 ``docs/api.md``（``README.md`` 只留指引），
+    本锚点聚合读两个文件，双向断言语义不变。
+    """
+    text = _read("README.md") + "\n" + _read("docs", "api.md")
     found = set()
     for token in re.findall(re.escape(API_PREFIX) + r"/[A-Za-z0-9_{}./\-]*", text):
         found.add(_normalize_path(token.rstrip("`")))

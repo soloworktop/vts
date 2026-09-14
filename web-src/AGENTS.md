@@ -10,7 +10,7 @@
 ## 最容易踩的几条
 
 1. **API 一律走 `src/api/` 唯一出口**：组件禁止散落硬编码 URL；改端点先改
-   `api/endpoints.ts` + `api/types.ts`，再同步仓库根 `README.md` 接口表
+   `api/endpoints.ts` + `api/types.ts`，再同步仓库根 `docs/api.md` 接口表
    （`tests/test_doc_consistency.py` 强制双向一致）。
 2. **改完必须 `pnpm build`**：`tsc --noEmit`（strict）+ `vite build` + 复制产物；
    只改源码不构建，运行中的 Web 控制台看不到变化。

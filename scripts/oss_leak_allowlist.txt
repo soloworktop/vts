@@ -18,7 +18,6 @@ src/video_to_summary/web/app.py|扫码登录|能力契约说明：capabilities �
 src/video_to_summary/sources/url.py|扫码登录|说明性：开源版不提供站点扫码登录（能力位 false）
 src/video_to_summary/web/static/user-guide.html|扫码登录|用户手册：本版不内置扫码登录
 web-src/src/lib/errors.ts|扫码登录|用户引导：错误提示"本版不内置扫码登录"
-README.md|扫码登录|说明性：本版不内置扫码登录，请用 --cookies
 CONTRIBUTING.md|扫码登录|范围宣言：声明不接受 B 站扫码登录
 tests/test_doc_consistency.py|扫码登录|防漂移测试：断言 README 不得宣传该短语
 tests/test_subtitles.py|扫码登录|说明性：开源版不提供扫码登录，引导指向 cookies 解法
