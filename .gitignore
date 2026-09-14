@@ -17,6 +17,8 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+# ZCode 本地会话数据（规划产物等，不入库且不参与禁词扫描）
+.zcode/
 
 # ---- 本仓特有：密钥与运行时数据（禁止入库）----
 # 发布版本号（构建期从 git tag 生成，禁止入库；version.py 缺失时自动回落 git describe）
