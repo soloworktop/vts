@@ -60,7 +60,7 @@ flowchart LR
 | LLM summarization | 10 built-in templates to switch style instantly — the Chinese names are the literal values `--summary-template` accepts: 通用 (General) / 精简笔记 (Concise) / 详细笔记 (Detailed) / 教程笔记 (Tutorial) / 学术笔记 (Academic) / 会议纪要 (Meeting minutes) / 商业分析 (Business analysis) / 小红书笔记 (Xiaohongshu-style) / 生活随笔 (Life notes) / 任务清单 (Task list) — or fully custom templates |
 | Job management | Close the tab, restart the service — nothing is lost: live progress, cancel, retry (with a different template), resume after restart, replayable events |
 | History & search | label system (rename / merge / delete) + SQLite FTS5 full-text search with highlighted hits — find that one sentence across hundreds of jobs; falls back to LIKE automatically when FTS5 is unavailable |
-| Artifacts | Everything is plain files you can take with you: `.summary.md` editable in place (atomic write-back), `.txt` / `.srt` / `.segments.json`, plus `.polished.txt` when text polishing is enabled |
+| Artifacts | Everything is plain files you can take with you: `.summary.md` editable in place (atomic write-back), `.txt` / `.srt` / `.segments.json` |
 | Export & migration | per-job Markdown export (real attachment); the whole history packs into one zip — migrating machines loses nothing |
 | Diagnostics | one-click sanitized diagnostic log export (keys / Bearer / cookies pseudonymized) — report bugs without leaking secrets |
 | Security | API keys Fernet-encrypted at rest; artifact path-traversal guard; optional Bearer-token auth; no-cache static assets |
@@ -160,9 +160,8 @@ SUMMARY_MODEL=deepseek-chat
 ```
 
 Or configure via the HTTP API (keys are encrypted at rest; the API only returns masked
-values). LLM config has exactly two slots: a **text model** (shared by summarization and
-polishing) and a **speech recognition model** (transcribes audio when a video has no
-subtitles — the ASR config below):
+values). LLM config has exactly two slots: a **text model** and a **speech recognition
+model** (transcribes audio when a video has no subtitles — the ASR config below):
 
 ```bash
 curl -X PUT localhost:8080/api/v1/llm -H 'Content-Type: application/json' \
