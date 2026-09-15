@@ -8,7 +8,7 @@
 import pytest
 import requests
 
-from fakes import STYLE_RICH_MARKERS, FakeUrlSource
+from fakes import STYLE_RICH_MARKERS, FakeSubtitleUrlSource, FakeUrlSource
 
 pytestmark = pytest.mark.e2e
 
@@ -103,6 +103,91 @@ def test_url_job_title_rewrite_and_events(e2e_server, make_media_file, wait_job,
     summary_md = (e2e_server.output_dir / job_id / "e2e-fake-video.summary.md").read_text(encoding="utf-8")
     assert "# E2E 视频标题" in summary_md
     assert "example.test" in summary_md  # to_markdown 的「来源」行
+
+
+def test_url_job_subtitle_path_events_and_artifacts(e2e_server, make_media_file, wait_job, monkeypatch) -> None:
+    """字幕优先路径（铁律 5 两段式）：不下载音频、不转写，事件链 subtitle→summarize→completed。
+
+    产物全部来自字幕：.txt 为字幕文本，.srt 时间轴来自字幕分段，标题由
+    subtitle_done payload 回写（字幕路径没有 download_done）。
+    """
+    from video_to_summary.web import tasks as web_tasks
+
+    media = make_media_file()
+    source = FakeSubtitleUrlSource(media, title="E2E 字幕标题", duration=42)
+    monkeypatch.setattr(web_tasks, "_build_source", lambda settings, job: source)
+
+    res = requests.post(
+        f"{e2e_server.base_url}/api/v1/jobs",
+        json={"source_type": "url", "url": "https://example.test/watch?v=e2e-sub"},
+        timeout=5,
+    )
+    assert res.status_code == 200
+    job_id = res.json()["job_id"]
+
+    detail = wait_job(job_id, {"completed"})
+    pos = _event_positions(detail)
+    assert pos["subtitle_start"] < pos["subtitle_done"] < pos["summarize_start"] < pos["summarize_done"] < pos["completed"]
+    assert "download_start" not in pos and "transcribe_start" not in pos
+    assert source.resolve_calls == 0, "字幕路径不得触发音频下载"
+    assert source.subtitle_calls == 1
+
+    # subtitle_done 携带字幕 meta 标题 → 回写并持久化（与 download_done 同一守卫语义）
+    assert detail["title"] == "E2E 字幕标题"
+
+    job_dir = e2e_server.output_dir / job_id
+    assert (job_dir / "e2e-fake-sub.txt").read_text(encoding="utf-8") == "字幕段落一\n字幕段落二"
+    srt = (job_dir / "e2e-fake-sub.srt").read_text(encoding="utf-8")
+    assert "00:00:00,000 --> 00:00:01,500" in srt and "字幕段落一" in srt
+    assert (job_dir / "e2e-fake-sub.segments.json").exists()
+    summary_md = (job_dir / "e2e-fake-sub.summary.md").read_text(encoding="utf-8")
+    assert "# E2E 字幕标题" in summary_md
+    # /file 端点回读字幕路径产物
+    file_res = requests.get(
+        f"{e2e_server.base_url}/api/v1/jobs/{job_id}/file",
+        params={"path": detail["result_paths"]["transcript"]},
+        timeout=5,
+    )
+    assert file_res.status_code == 200
+    assert "字幕段落二" in file_res.json()["content"]
+
+
+def test_url_job_subtitle_skip_falls_back_to_download(e2e_server, make_media_file, wait_job, monkeypatch) -> None:
+    """无可用字幕 → subtitle_skipped 后回退下载+转写，任务不失败（回退语义）。"""
+    from video_to_summary.web import tasks as web_tasks
+
+    media = make_media_file()
+    source = FakeSubtitleUrlSource(media, title="E2E 视频标题", usable=False)
+    monkeypatch.setattr(web_tasks, "_build_source", lambda settings, job: source)
+
+    res = requests.post(
+        f"{e2e_server.base_url}/api/v1/jobs",
+        json={"source_type": "url", "url": "https://example.test/watch?v=e2e-nosub"},
+        timeout=5,
+    )
+    assert res.status_code == 200
+    job_id = res.json()["job_id"]
+
+    detail = wait_job(job_id, {"completed"})
+    pos = _event_positions(detail)
+    # 完整回退链：字幕尝试失败 → 下载音频 → 转写 → 总结 → 完成
+    assert (
+        pos["subtitle_start"]
+        < pos["subtitle_skipped"]
+        < pos["download_start"]
+        < pos["download_done"]
+        < pos["transcribe_start"]
+        < pos["transcribe_done"]
+        < pos["summarize_start"]
+        < pos["completed"]
+    )
+    assert source.subtitle_calls == 1 and source.resolve_calls == 1
+    # subtitle_skipped 携带可读 reason（真实源镜像同一契约），不允许静默跳过
+    skipped_payload = detail["progress"][pos["subtitle_skipped"]]["payload"]
+    assert skipped_payload.get("reason")
+    # 回写发生在 download_done（字幕路径没有产出标题）
+    done_payload = detail["progress"][pos["download_done"]]["payload"]
+    assert done_payload["title"] == "E2E 视频标题"
 
 
 def test_transcribe_failure_marks_failed(e2e_server, make_media_file, wait_job) -> None:

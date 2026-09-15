@@ -1,4 +1,4 @@
-"""E2E 专用进程内 fakes：替换三个网络边界（yt-dlp 下载 / Whisper 转写 / OpenAI LLM）。
+"""E2E 专用进程内 fakes：替换三个网络边界（yt-dlp 下载与字幕 / Whisper 转写 / OpenAI LLM）。
 
 只实现在 `pipeline.run` 与 `web/tasks._run_job_inner` 的 Protocol 接缝上真正会被
 调用的方法，保证零网络、零模型、确定性输出。可变性（fail/delay 开关）供
@@ -9,12 +9,14 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from video_to_summary.config import SubtitleConfig
 from video_to_summary.schemas import (
     AudioMeta,
     SummaryOutput,
     TranscriptResult,
     TranscriptSegment,
 )
+from video_to_summary.subtitles import SubtitleResult
 
 # 刻意覆盖 _STYLE_CONTRACT 的全部受限排版元素：
 # 引用块 + emoji 小标题 + 加粗 + 表格 + 受限 color span（SAFE_COLOR_SPAN 白名单内）
@@ -153,6 +155,55 @@ class FakeUrlSource:
         return self.audio_path, meta
 
 
+class FakeSubtitleUrlSource(FakeUrlSource):
+    """字幕两段式的 URL 源假体：存在 `extract_subtitle` 属性即被 pipeline 走字幕优先路径。
+
+    - usable=True（默认）：返回预置 SubtitleResult，`resolve()` 永不被调
+      （用例断言 `resolve_calls == 0` 证明未下载音频）；
+    - usable=False：`extract_subtitle` 返回 None（镜像真实源「无可用字幕」），
+      pipeline 走 subtitle_skipped → 下载+转写回退链。
+    真实源在无字幕时会把 `subtitle_skip_reason` 置为可读提示（SUBTITLE_SKIPPED
+    payload 的 reason），这里镜像同一契约。config（语言/偏好）不影响假体返回——
+    OFF 偏好的门控在 pipeline 侧，假体不重复实现。
+    """
+
+    def __init__(
+        self, audio_path: Path, title: str = "E2E 字幕标题", duration: int = 42, *, usable: bool = True
+    ) -> None:
+        super().__init__(audio_path, title=title, duration=duration)
+        self.usable = usable
+        self.subtitle_calls = 0
+        self.subtitle_skip_reason = "" if usable else "no usable subtitle"
+
+    def extract_subtitle(self, config: SubtitleConfig) -> Optional[SubtitleResult]:
+        self.subtitle_calls += 1
+        if not self.usable:
+            return None
+        meta = AudioMeta(
+            source_id="e2e-fake-sub",
+            title=self._title,
+            source_url="https://example.test/watch?v=e2e-sub",
+            duration=self._duration,
+            uploader="e2e-uploader",
+            audio_path=self.audio_path,
+        )
+        segments = [
+            TranscriptSegment(0.0, 1.5, "字幕段落一"),
+            TranscriptSegment(1.5, 3.0, "字幕段落二"),
+        ]
+        # 真实源（sources/url.py）在字幕成功路径同样回填 self.meta——web 层
+        # result_paths 的 source_id 取自 source.meta（此时 resolve 未被调过）
+        self.meta = meta
+        return SubtitleResult(
+            transcript=TranscriptResult(text="字幕段落一\n字幕段落二", segments=segments),
+            meta=meta,
+            # pipeline 只读 transcript/meta，不触碰 subtitle_path 本体
+            subtitle_path=self.audio_path,
+            language="zh-Hans",
+            automatic=False,
+        )
+
+
 def build_fake_summary(title: str, body: str) -> SummaryOutput:
     """供需要直接构造 SummaryOutput 的场景使用（保持与 FakeSummarizer 一致的形状）。"""
     return SummaryOutput(
@@ -171,5 +222,6 @@ __all__ = [
     "FakeSummarizer",
     "FakePolisher",
     "FakeUrlSource",
+    "FakeSubtitleUrlSource",
     "build_fake_summary",
 ]
