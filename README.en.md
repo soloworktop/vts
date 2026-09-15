@@ -2,9 +2,19 @@
 
 > 中文文档：[`README.md`](README.md)。
 
+![License](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![Subtitle-first](https://img.shields.io/badge/subtitle--first-zero%20ASR%20cost-orange)
+<!-- Once pushed to GitHub, remove this comment to enable the CI badge (workflow ready: .github/workflows/oss-guard.yml):
+[![CI](https://github.com/OWNER/REPO/actions/workflows/oss-guard.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/oss-guard.yml) -->
+
 **Video URL → structured Markdown notes.** Paste a video link, and VTS fetches the
 transcript (or subtitles), runs it through an LLM you configure, and lands an editable,
 searchable, exportable Markdown note. Ships with a web console and a CLI.
+
+Why it exists: you watch an hour-long video and want notes — transcribing by hand takes
+all evening, and cloud summarization services want your video uploaded to their servers
+plus a monthly fee. VTS is **self-hosted**, so your video never leaves your machine, and
+**subtitle-first** means videos with subtitles cost zero API tokens — a transcription
+endpoint is only needed for videos without subtitles.
 
 > **Subtitle-first.** When a video has subtitles (human or platform-generated), VTS uses
 > the subtitle text directly as the transcript — no audio download, no transcription API
@@ -23,23 +33,36 @@ searchable, exportable Markdown note. Ships with a web console and a CLI.
 
 **Contents**: [Features](#features) · [Quick start](#quick-start) · [Configuration](#configuration) ·
 [Data & backups](#data--backups) · [Advanced](#advanced) ·
-[Non-goals](#what-vts-deliberately-does-not-include) · [Reference](#reference) ·
+[Non-goals](#what-vts-deliberately-does-not-include) · [Reference](#reference-doc-map) ·
 [Development](#development) · [FAQ](#faq)
+
+```mermaid
+flowchart LR
+    A["Video URL"] --> B{"Has subtitles?"}
+    B -- "Yes" --> C["Use subtitle text<br/>(zero API cost)"]
+    B -- "No" --> D["Download audio<br/>→ ASR transcribe"]
+    C --> E["LLM summary<br/>(BYOK endpoint)"]
+    D --> E
+    E --> F["Markdown note<br/>editable · searchable · exportable"]
+```
+
+![VTS web console](docs/assets/web-console.png)
+<p align="center"><sub>Web console: job status, live progress, in-place artifact editing, full-text search (screenshot shows sample data)</sub></p>
 
 ---
 
 ## Features
 
-| Capability | Description |
+| Capability | Benefit |
 |---|---|
-| Subtitle-first | Uses the video's own subtitles by default; `--subtitle-preference`: `auto` / `manual_only` / `off`, language via `--subtitle-language` (`auto` prefers Chinese) |
-| Transcription | OpenAI-compatible Whisper API for videos without subtitles |
-| LLM summarization | 10 built-in templates — the Chinese names below are the literal values `--summary-template` accepts: 通用 (General) / 精简笔记 (Concise) / 详细笔记 (Detailed) / 教程笔记 (Tutorial) / 学术笔记 (Academic) / 会议纪要 (Meeting minutes) / 商业分析 (Business analysis) / 小红书笔记 (Xiaohongshu-style) / 生活随笔 (Life notes) / 任务清单 (Task list) — plus custom template CRUD |
-| Job management | create / progress / cancel / retry (with a different template) / delete; resumes after restart, events are replayable |
-| History & search | label system (rename / merge / delete) and SQLite FTS5 full-text search with highlighted hits; falls back to LIKE automatically when FTS5 is unavailable |
-| Artifacts | `.summary.md` (editable in place, atomic write-back) plus `.txt` / `.srt` / `.segments.json`; `.polished.txt` when text polishing is enabled |
-| Export & migration | per-job Markdown export (real attachment); full history export/import as zip |
-| Diagnostics | `GET /api/v1/logs/export` sanitized diagnostic log export (keys / Bearer / cookies pseudonymized) |
+| Subtitle-first | Videos with subtitles produce notes at **zero API cost** — no audio download, no transcription; `--subtitle-preference` switches to `manual_only` / `off`, language via `--subtitle-language` (Chinese-first by default) |
+| Transcription | Only needed for videos without subtitles: point at any OpenAI-compatible Whisper endpoint, no local models to install |
+| LLM summarization | 10 built-in templates to switch style instantly — the Chinese names are the literal values `--summary-template` accepts: 通用 (General) / 精简笔记 (Concise) / 详细笔记 (Detailed) / 教程笔记 (Tutorial) / 学术笔记 (Academic) / 会议纪要 (Meeting minutes) / 商业分析 (Business analysis) / 小红书笔记 (Xiaohongshu-style) / 生活随笔 (Life notes) / 任务清单 (Task list) — or fully custom templates |
+| Job management | Close the tab, restart the service — nothing is lost: live progress, cancel, retry (with a different template), resume after restart, replayable events |
+| History & search | label system (rename / merge / delete) + SQLite FTS5 full-text search with highlighted hits — find that one sentence across hundreds of jobs; falls back to LIKE automatically when FTS5 is unavailable |
+| Artifacts | Everything is plain files you can take with you: `.summary.md` editable in place (atomic write-back), `.txt` / `.srt` / `.segments.json`, plus `.polished.txt` when text polishing is enabled |
+| Export & migration | per-job Markdown export (real attachment); the whole history packs into one zip — migrating machines loses nothing |
+| Diagnostics | one-click sanitized diagnostic log export (keys / Bearer / cookies pseudonymized) — report bugs without leaking secrets |
 | Security | API keys Fernet-encrypted at rest; artifact path-traversal guard; optional Bearer-token auth; no-cache static assets |
 
 ---
@@ -103,7 +126,8 @@ bash scripts/run.sh "<video-url>"
 # One-liner alternative: creates the venv, installs deps, then runs the CLI.
 ```
 
-Output lands in `output/`: transcript `.txt`, subtitles `.srt`, summary `.summary.md`.
+Success looks like the last line `summary -> output/<job-id>/xxx.summary.md`; artifacts
+land in `output/`: summary `.summary.md`, transcript `.txt`, subtitles `.srt`.
 
 VTS also ships a built-in user guide: <http://127.0.0.1:8080/guide>. For more scripted
 examples see `examples/` (basic URL / local audio / custom backend / skill integration).
@@ -273,21 +297,20 @@ transcription engine has no mount point today. The full scope rationale lives in
 
 ---
 
-## Reference
+## Reference (doc map)
 
-### HTTP API
+The canonical API prefix is **`/api/v1`**. Go deeper as needed:
 
-The canonical prefix is **`/api/v1`**. The full 34-endpoint table and the optional
-`VIDEO_TO_SUMMARY_TOKEN` authentication notes live in `docs/api.md` (kept in sync with the
-code); **must** be configured before exposing the service to your LAN or the public
-internet.
-
-### Environment variables
-
-Every variable is optional. The quick-reference table and full semantics (defaults,
-fallback chains, activation conditions) live in `docs/configuration.md`; annotated
-examples in `.env.example`; Docker-specific variables in `docker/README.md`
-(Configuration).
+| Document | Contents |
+|---|---|
+| [Built-in user guide](http://127.0.0.1:8080/guide) | illustrated daily-usage manual (served by the app) |
+| [`docs/api.md`](docs/api.md) | full HTTP API table (34 endpoints) and `VIDEO_TO_SUMMARY_TOKEN` auth — **must** be configured before LAN/public exposure |
+| [`docs/configuration.md`](docs/configuration.md) | full environment-variable semantics (incl. legacy aliases), data-location rules, version injection |
+| [`docs/plugins.md`](docs/plugins.md) | plugin mount points, entry-point wiring, capability declaration |
+| [`docker/README.md`](docker/README.md) | Docker deployment, configuration, upgrades, network & risk control (Bilibili 412) |
+| [`.env.example`](.env.example) | annotated example for every environment variable |
+| [`SECURITY.md`](SECURITY.md) | how to report vulnerabilities & self-hosting security notes |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`AGENTS.md`](AGENTS.md) | contribution process & scope declaration / repo conventions |
 
 ---
 
@@ -326,6 +349,19 @@ logged-in session, and the Web/Docker form has no local browser. Pick one fix:
 Full background and compose examples: `docker/README.md` → "网络与风控（B 站 412 等）"
 (Network & risk control).
 
+### Asked to install ffmpeg / ffprobe — is it required?
+
+Only the "no subtitles → download audio → transcribe" path uses it; videos with subtitles
+never touch it. If a transcription error mentions ffmpeg / ffprobe, install it per
+[Quick start](#quick-start) and run again (macOS `brew install ffmpeg`,
+Debian/Ubuntu `sudo apt install ffmpeg`, Windows `winget install Gyan.FFmpeg`).
+
+### Port 8080 is taken
+
+`bash scripts/web.sh` automatically advances to the next free port — trust the actual URL
+printed in the startup log. To pin a port: `PORT=8090 bash scripts/web.sh` or
+`bash scripts/web.sh --port 8090`.
+
 ### How do I back up / migrate my data?
 
 Stop the service, then copy `app.db` (together with the sibling `enc_key`) and the whole
@@ -360,6 +396,15 @@ This tool is for personal learning and research only. Please respect the terms o
 and copyright of the target platforms: do not download or redistribute content you are not
 entitled to. The project contains no DRM/paywall-bypass capability and no bundled
 credentials.
+
+## Acknowledgements
+
+Built on and grateful for these open-source projects:
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) (video info & subtitles),
+[FastAPI](https://github.com/fastapi/fastapi) / [uvicorn](https://github.com/encode/uvicorn) (web service),
+[openai-python](https://github.com/openai/openai-python) (OpenAI-compatible client),
+[cryptography](https://github.com/pyca/cryptography) (key encryption), and the
+React + Vite frontend toolchain.
 
 ## License
 
