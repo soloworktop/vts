@@ -50,6 +50,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # 默认官方 apt 源；国内可传 APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn 加速，见 README
 ARG APT_MIRROR=
 
+# 发布版本号：发布流水线经 --build-arg VIDEO_TO_SUMMARY_VERSION=<tag> 注入（如 v0.3.0）。
+# 运行期 version.py 的 env 优先级最高（非空即返回）；留空 = 本地源码构建，回落
+# 包元数据/开发态，不改变默认行为（见 src/video_to_summary/version.py）。
+ARG VIDEO_TO_SUMMARY_VERSION=
+ENV VIDEO_TO_SUMMARY_VERSION=${VIDEO_TO_SUMMARY_VERSION}
+
 # ffmpeg：yt-dlp 抽音频/合流必需；tzdata：让 TZ 环境变量生效。
 # APT_MIRROR 非空时先把 Debian 源替换为该镜像（python:3.12-slim 基于 Debian trixie，
 # 用 deb822 格式 /etc/apt/sources.list.d/debian.sources，脚本同时兼容旧格式

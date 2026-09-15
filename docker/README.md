@@ -256,6 +256,7 @@ VTS_PORT=8080 docker compose -f docker/docker-compose.yml up -d --build
 | `APT_MIRROR` | stage2 `apt-get update`/`install` 的 Debian apt 镜像源。**建议只填 host**（如 `https://mirrors.tuna.tsinghua.edu.cn`，镜像会把 `/debian` 路径自动拼回），也接受带 `/debian` 后缀或尾部 `/` 的地址——由 `docker/setup-apt-mirror.sh` 构建期自动归一化（去尾部 `/`、再去尾部 `/debian`），不会产生 `debian/debian` 路径重复 | 空 = Debian 官方源 |
 | `PIP_INDEX_URL` | stage2 `pip install` 的 `--index-url`（PyPI 镜像源） | 空 = PyPI 官方源 |
 | `NPM_REGISTRY` | stage1 npm/pnpm 的 `--registry`（npm 镜像源） | 空 = npm 官方源 |
+| `VIDEO_TO_SUMMARY_VERSION` | 注入镜像的**版本号**（构建期 build-arg，同时固化为运行期 env；`version.py` 的 env 优先级最高，非空即返回）。发布流水线传 git tag（如 `v0.3.0`），本地构建留空 | 空 = 回落包元数据/开发态 |
 
 ---
 

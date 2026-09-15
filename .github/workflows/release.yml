@@ -1,0 +1,193 @@
+# 发布流水线：推送 v* tag 触发。
+# 产物：wheel + sdist（GitHub Release 附件，含 SHA256SUMS）+ ghcr.io 多架构 Docker 镜像。
+# 两条仓库铁律：
+# 1. 必须先构建前端再打包 —— web/static 产物不入库，直接打包的 wheel 缺静态资源，
+#    非 editable 安装首页白屏（tests/test_packaging.py 记录的缺陷路径）。
+# 2. 打包前注入 tag 版本 —— pyproject（wheel 元数据，去 v 前缀）+ _version.py
+#    （运行期展示，保留完整 tag；解析链见 src/video_to_summary/version.py）。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # 创建 GitHub Release
+  packages: write # 推送 ghcr.io 镜像
+
+jobs:
+  build:
+    name: Test, build package, smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up pnpm
+        # 版本对齐 oss-guard.yml / docker/Dockerfile（11.8.0，lockfileVersion 9.0）
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.8.0"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # pnpm 11 需要 Node 22+（同 oss-guard.yml，勿降 20）
+          node-version: "22"
+
+      - name: Build frontend (web-src -> src/video_to_summary/web/static)
+        working-directory: web-src
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Inject release version (pyproject + _version.py)
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          ver = tag[1:] if tag.startswith("v") else tag
+          p = pathlib.Path("pyproject.toml")
+          text = re.sub(
+              r'(?m)^version = "[^"]*"',
+              f'version = "{ver}"',
+              p.read_text(encoding="utf-8"),
+              count=1,
+          )
+          p.write_text(text, encoding="utf-8")
+          pathlib.Path("src/video_to_summary/_version.py").write_text(
+              f'VERSION = "{tag}"\n', encoding="utf-8"
+          )
+          print(f"pyproject version -> {ver}; _version.py -> {tag}")
+          PY
+
+      - name: Install package (dev extra) and run tests
+        # 发布门禁：离线全量 pytest（[dev] 含 requests，tests/e2e 收集期需要；
+        # 浏览器用例缺 playwright 自动跳过，完整 e2e 由 oss-guard 在 main 覆盖）
+        # + 禁词 lint。必须在 python -m build 之前（此时 dist/ 尚不存在）。
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pytest -q
+          python scripts/banned_words_lint.py
+
+      - name: Build sdist and wheel
+        # 顺序敏感：必须在前端构建与版本注入之后（web/static 与 _version.py
+        # 均为构建期产物，不入库）。
+        run: |
+          python -m pip install build
+          python -m build
+          ls -la dist/
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Smoke test (fresh venv, non-editable wheel install)
+        # tests/test_packaging.py 把 wheel 实测划给发布流程：全新 venv 装 wheel、
+        # 起服务，逐项验证健康检查/版本号/首页引用构建产物/静态资源可达（白屏缺陷
+        # 只在非 editable 安装路径暴露，editable 安装与测试套件看不出来）。
+        run: |
+          python -m venv /tmp/vts-smoke
+          /tmp/vts-smoke/bin/pip install --quiet dist/*.whl
+          export VIDEO_TO_SUMMARY_DB=/tmp/vts-smoke/smoke.db
+          export VIDEO_TO_SUMMARY_OUTPUT_DIR=/tmp/vts-smoke/output
+          /tmp/vts-smoke/bin/python -m uvicorn video_to_summary.web.app:app \
+            --host 127.0.0.1 --port 8131 &> /tmp/vts-smoke/server.log &
+          SRV=$!
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8131/api/v1/health > /dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::服务未在 30s 内就绪"
+            cat /tmp/vts-smoke/server.log
+            kill $SRV
+            exit 1
+          fi
+          curl -sf http://127.0.0.1:8131/api/v1/health | grep -q '"status":"ok"' \
+            || { echo "::error::health 状态非 ok"; kill $SRV; exit 1; }
+          curl -sf http://127.0.0.1:8131/api/v1/health | grep -q "\"version\":\"$GITHUB_REF_NAME\"" \
+            || { echo "::error::health 版本号 != $GITHUB_REF_NAME"; kill $SRV; exit 1; }
+          ASSET=$(curl -sf http://127.0.0.1:8131/ | grep -o 'assets/index-[^"]*\.js' | head -1)
+          [ -n "$ASSET" ] \
+            || { echo "::error::首页未引用构建产物（wheel 缺静态资源）"; kill $SRV; exit 1; }
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8131/static/$ASSET")
+          [ "$CODE" = "200" ] \
+            || { echo "::error::/static/$ASSET -> $CODE（静态资源缺失，白屏缺陷路径）"; kill $SRV; exit 1; }
+          ( cd /tmp && /tmp/vts-smoke/bin/vts --version | grep -qF "$GITHUB_REF_NAME" ) \
+            || { echo "::error::CLI --version 未显示 $GITHUB_REF_NAME"; kill $SRV; exit 1; }
+          echo "smoke ok: health=ok version=$GITHUB_REF_NAME asset=$ASSET"
+          kill $SRV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Create GitHub Release
+        # wheel / sdist / SHA256SUMS 全部作为附件；--generate-notes 自动汇总 changelog。
+        # tag 重复发布时此步失败（release 已存在），天然防重复。
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*
+
+  docker:
+    name: Build & push image (ghcr.io)
+    # 依赖 release 而非只依赖 build：tag 重复导致 Release 创建失败时，不再推送镜像
+    # （fail-closed，避免半发布态）。
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase image name (ghcr 要求全小写)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          # 构建上下文 = 仓库根（docker/README.md 约定，Dockerfile 内路径以此为基准）
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+            ${{ env.IMAGE }}:latest
+          build-args: |
+            VIDEO_TO_SUMMARY_VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
