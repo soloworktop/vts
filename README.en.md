@@ -1,4 +1,4 @@
-# VTS
+# VTS (Video-To-Summary): Video Summarizer · Video-to-Text · Subtitle Extraction · Markdown Notes
 
 > 中文文档：[`README.md`](README.md)。
 
@@ -10,11 +10,13 @@
 transcript (or subtitles), runs it through an LLM you configure, and lands an editable,
 searchable, exportable Markdown note. Ships with a web console and a CLI.
 
-Why it exists: you watch an hour-long video and want notes — transcribing by hand takes
-all evening, and cloud summarization services want your video uploaded to their servers
-plus a monthly fee. VTS is **self-hosted**, so your video never leaves your machine, and
-**subtitle-first** means videos with subtitles cost zero API tokens — a transcription
-endpoint is only needed for videos without subtitles.
+**Typical use cases**:
+
+- **AI video summaries** — turn long YouTube / Bilibili videos into structured notes;
+- **Video-to-text & subtitle extraction** — transcripts and `.srt` files for lectures,
+  talks, and interviews;
+- **Podcast transcription** — archive local audio as searchable text notes;
+- **Meeting & course knowledge base** — labeled, full-text-searchable personal notes.
 
 > **Subtitle-first.** When a video has subtitles (human or platform-generated), VTS uses
 > the subtitle text directly as the transcript — no audio download, no transcription API
@@ -23,6 +25,7 @@ endpoint is only needed for videos without subtitles.
 > one, summarization is skipped and only the raw transcript is produced — the job still
 > succeeds.
 
+- **Self-hosted** — videos, notes, and the database stay on your own machine;
 - **BYOK (Bring Your Own Key)** — not tied to any model vendor. Any **OpenAI-compatible**
   endpoint works: OpenAI, DeepSeek, Moonshot, a self-hosted vLLM/Ollama gateway… just set
   `base_url` / `api_key` / `model`.
@@ -46,7 +49,7 @@ flowchart LR
     E --> F["Markdown note<br/>editable · searchable · exportable"]
 ```
 
-![VTS web console](docs/assets/web-console.png)
+![VTS web console: video summarization job list & Markdown note detail](docs/assets/web-console.png)
 <p align="center"><sub>Web console: job status, live progress, in-place artifact editing, full-text search (screenshot shows sample data)</sub></p>
 
 ---
