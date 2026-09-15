@@ -410,4 +410,4 @@ React + Vite frontend toolchain.
 
 ## License
 
-[MIT](LICENSE) © 2026 VTS contributors
+[MIT](LICENSE) © 2026 soloworktop

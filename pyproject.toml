@@ -10,7 +10,7 @@ description = "VTS — 视频 URL → 结构化 Markdown 笔记（字幕优先�
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "VTS contributors" }]
+authors = [{ name = "soloworktop", email = "soloworktop@163.com" }]
 keywords = [
     "video",
     "summary",

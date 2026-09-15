@@ -144,15 +144,20 @@ jobs:
 
       - name: Create GitHub Release
         # wheel / sdist / SHA256SUMS 全部作为附件；--generate-notes 自动汇总 changelog。
-        # tag 重复发布时此步失败（release 已存在），天然防重复。
+        # 幂等：tag 重推（修 tag / 历史重写）时 Release 已存在，改用 --clobber 覆盖同名
+        # 附件，不让流水线红在重复发布上。
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            dist/*
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber dist/*
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              dist/*
+          fi
 
   docker:
     name: Build & push image (ghcr.io)

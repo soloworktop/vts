@@ -359,4 +359,4 @@ Debian / Ubuntu `sudo apt install ffmpeg`、Windows `winget install Gyan.FFmpeg`
 
 ## 许可
 
-[MIT](LICENSE) © 2026 VTS contributors
+[MIT](LICENSE) © 2026 soloworktop
