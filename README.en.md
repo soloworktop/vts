@@ -298,6 +298,7 @@ pip install -e ".[dev]"
 python -m pytest -q                    # offline by default; network cases need VTS_NETWORK_TESTS=1
 pip install -e ".[e2e]" && playwright install chromium
 bash scripts/e2e.sh                    # end-to-end (real uvicorn + in-process fakes)
+bash scripts/e2e.sh live               # live-boundary end-to-end (real download/transcribe/LLM; needs keys in .env, skipped by default)
 ```
 
 Before running the test suite locally for the first time, build the frontend:

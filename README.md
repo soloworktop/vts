@@ -257,6 +257,7 @@ pip install -e ".[dev]"
 python -m pytest -q                    # 默认全离线；联网用例需 VTS_NETWORK_TESTS=1
 pip install -e ".[e2e]" && playwright install chromium
 bash scripts/e2e.sh                    # 端到端（真实 uvicorn + fakes）
+bash scripts/e2e.sh live               # 真实边界端到端（真实下载/转写/LLM；需 .env 配 Key，默认跳过）
 ```
 
 本地首次跑测试前先构建前端：`cd web-src && pnpm install && pnpm build`（CI 会自动构建；

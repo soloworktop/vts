@@ -78,6 +78,7 @@ examples/                        用法示例（基础 / 本地音频 / 自定�
 python -m pytest -q                      # 必须全绿（默认全离线）
 VTS_NETWORK_TESTS=1 python -m pytest -q  # 含联网集成用例
 bash scripts/e2e.sh                      # 端到端（真实 uvicorn + fakes；浏览器层需 playwright）
+VTS_LIVE_E2E=1 bash scripts/e2e.sh live  # 真实边界端到端（真实下载/转写/LLM，读 .env；默认跳过，CI 不跑）
 ```
 
 - 用例隔离：DB 一律 monkeypatch 到 `tmp_path` 后 `db.reset()`，不得污染真实 `data/`

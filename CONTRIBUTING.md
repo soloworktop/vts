@@ -61,6 +61,7 @@ python -m pytest -q                     # 必须全绿（默认全离线）
 ```
 
 - 端到端：`pip install -e ".[e2e]" && playwright install chromium && bash scripts/e2e.sh`
+- 真实边界端到端（会用掉 .env 里 Key 的真实调用量，默认跳过）：在 `.env` 配好 Key 与 `VTS_LIVE_TEST_URL` 后 `bash scripts/e2e.sh live`
 - 需要联网的用例默认跳过，用 `VTS_NETWORK_TESTS=1` 开启
 - 提交前请确认 `git status` 里没有 `.env` / `data/` / `output*/` / `*.db`
 
