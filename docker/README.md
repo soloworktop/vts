@@ -17,15 +17,35 @@ docker/
 
 **前置条件**
 
-- 装有 **Docker** 与 **Compose v2**（`docker compose` 子命令可用，`docker compose version`
-  可自检）。compose 文件使用了 v2 的顶层 `name:` 字段，v1 `docker-compose` 不支持。
-- 构建上下文是**仓库根**（需要 `web-src/` 与 `src/`），因此所有命令都在仓库根执行。
-- 首次构建需联网拉取 base 镜像与 Python/Node 依赖，通常数分钟，视网络而定（国内加速
-  见「加速构建（可选）」）。
+- 装有 **Docker**；源码构建（方式二）还需要 **Compose v2**（`docker compose` 子命令可用，
+  `docker compose version` 可自检）。compose 文件使用了 v2 的顶层 `name:` 字段，
+  v1 `docker-compose` 不支持。
+- 方式二（源码构建）的构建上下文是**仓库根**（需要 `web-src/` 与 `src/`），命令都在
+  仓库根执行；方式一（预构建镜像）无需克隆仓库。
+- 首次**构建**需联网拉取 base 镜像与 Python/Node 依赖，通常数分钟，视网络而定（国内加速
+  见「加速构建（可选）」）；预构建镜像只拉镜像层。
 
 ---
 
 ## 快速开始
+
+### 方式一：预构建镜像（推荐——无需克隆仓库、无需本地构建）
+
+发布流水线把多架构镜像（amd64 / arm64）推送到 GitHub Container Registry，直接拉取运行：
+
+```bash
+docker run -d --name vts -p 8080:8080 \
+  -v vts_data:/data -v vts_output:/output \
+  --restart unless-stopped \
+  ghcr.io/soloworktop/vts:latest
+```
+
+- 标签：`latest` = 最新发布；固定版本用 `vX.Y.Z`（与
+  [GitHub Release](https://github.com/soloworktop/vts/releases) 同版本号）。
+- 数据存 `vts_data` / `vts_output` 两个卷，删容器不丢。
+- 环境变量（Key / 风控 / Token 等）用 `-e` 传入，见下方「配置」。
+
+### 方式二：源码构建（已克隆仓库 / 需要自定义）
 
 ```bash
 # 在仓库根执行（以下两种等价，任选其一）
@@ -261,6 +281,19 @@ VTS_PORT=8080 docker compose -f docker/docker-compose.yml up -d --build
 ---
 
 ## 升级
+
+预构建镜像（方式一）：拉新镜像后重建容器，数据卷不受影响（无需迁移步骤）：
+
+```bash
+docker pull ghcr.io/soloworktop/vts:latest
+docker rm -f vts
+docker run -d --name vts -p 8080:8080 \
+  -v vts_data:/data -v vts_output:/output \
+  --restart unless-stopped \
+  ghcr.io/soloworktop/vts:latest
+```
+
+源码构建（方式二）：
 
 ```bash
 git pull                                # 拉取新代码

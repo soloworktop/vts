@@ -67,12 +67,19 @@ flowchart LR
 ### 方式 A：Docker（推荐——不需要本机装 Python / Node）
 
 ```bash
+# 免克隆免构建：直接跑发布流水线推到 ghcr.io 的预构建镜像（amd64 / arm64）
+docker run -d --name vts -p 8080:8080 \
+  -v vts_data:/data -v vts_output:/output \
+  --restart unless-stopped \
+  ghcr.io/soloworktop/vts:latest
+
+# 或已克隆仓库时，源码构建一键起服务
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 打开 <http://127.0.0.1:8080> 即是控制台，健康检查在 `/api/v1/health`。数据存在
-`vts_data` / `vts_output` 两个卷里，`down` 不丢。等价的 `bash scripts/docker.sh up`，
-以及环境变量配置、升级、B 站 412 风控等细节见 `docker/README.md`。
+`vts_data` / `vts_output` 两个卷里，删容器 / `down` 不丢。镜像标签（`latest` 或与
+Release 同版本的 `vX.Y.Z`）、环境变量配置、升级、B 站 412 风控等细节见 `docker/README.md`。
 
 ### 方式 B：本地 venv
 
@@ -89,6 +96,11 @@ pip install -e .
 bash scripts/web.sh                      # 打开 http://127.0.0.1:8080
 ```
 
+> 只想用 CLI、不做本地开发？可以不克隆仓库，直接装
+> [Release](https://github.com/soloworktop/vts/releases) 里的发行包（尚未发布 PyPI）：
+> `pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl`。
+> Web 控制台建议走上面的 Docker 方式。
+>
 > 原生 Windows 没有 bash：直接运行 `python -m video_to_summary.main`，或使用 WSL。
 > `scripts/fetch_ffmpeg.sh` 仅供 macOS 打包分发，日常装 ffmpeg 用上面的包管理器即可。
 
@@ -341,7 +353,8 @@ Debian / Ubuntu `sudo apt install ffmpeg`、Windows `winget install Gyan.FFmpeg`
 发行名与项目名是 **VTS**，Python import 包名保持 **`video_to_summary`**
 （`from video_to_summary import Settings, run`）。沿用历史包名是为了不打断所有既有用法与
 下游依赖，重命名收益不抵成本。安装时用发行名 `pip install vts`——尚未发布到 PyPI，
-发布后可用；当前请用 `pip install -e .`，本地开发亦同。
+发布后可用；当前可直接装 [Release](https://github.com/soloworktop/vts/releases) 附件里的
+wheel，源码开发仍用 `pip install -e .`。
 
 ---
 

@@ -78,13 +78,21 @@ subtitles — see [Configuration](#configuration).
 ### Option A: Docker (recommended — no local Python/Node needed)
 
 ```bash
+# No clone, no build: run the prebuilt image (amd64 / arm64) pushed to ghcr.io
+# by the release pipeline
+docker run -d --name vts -p 8080:8080 \
+  -v vts_data:/data -v vts_output:/output \
+  --restart unless-stopped \
+  ghcr.io/soloworktop/vts:latest
+
+# Or, with the repository cloned, build from source in one command
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Open <http://127.0.0.1:8080> for the console; health check at `/api/v1/health`. Data lives
-in the `vts_data` / `vts_output` volumes and survives `down`. The equivalent
-`bash scripts/docker.sh up`, plus environment configuration, upgrades, and the Bilibili 412
-playbook: `docker/README.md`.
+in the `vts_data` / `vts_output` volumes and survives container removal / `down`. Image
+tags (`latest` or `vX.Y.Z` matching a Release), environment configuration, upgrades, and
+the Bilibili 412 playbook: `docker/README.md`.
 
 ### Option B: local venv
 
@@ -102,6 +110,11 @@ pip install -e .
 bash scripts/web.sh                      # open http://127.0.0.1:8080
 ```
 
+> Just want the CLI, no local development? Skip cloning and install the distribution
+> wheel from [Releases](https://github.com/soloworktop/vts/releases) (not on PyPI yet):
+> `pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl`.
+> For the web console, prefer the Docker option above.
+>
 > Native Windows has no bash: run `python -m video_to_summary.main` directly, or use WSL.
 > `scripts/fetch_ffmpeg.sh` is only for macOS app bundling — install ffmpeg via a package
 > manager for daily use.
@@ -387,8 +400,9 @@ The distribution and project name is **VTS**; the Python import package stays
 **`video_to_summary`** (`from video_to_summary import Settings, run`). The historical
 package name is kept because a rename would break every existing usage and downstream
 dependency — the cost outweighs the benefit. Install via the distribution name
-`pip install vts` — not yet published on PyPI, usable once released; for now use
-`pip install -e .`, which is also the right choice for local development.
+`pip install vts` — not yet published on PyPI, usable once released; for now install the
+wheel attached to a [Release](https://github.com/soloworktop/vts/releases), or use
+`pip install -e .` for local development.
 
 ---
 
