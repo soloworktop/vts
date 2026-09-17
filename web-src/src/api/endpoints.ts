@@ -49,6 +49,8 @@ export interface UploadJobOptions {
   summaryTemplate?: string;
   /** 上传进度回调（0-100 整数；fetch 无上传进度，故本函数走 XHR）。 */
   onProgress?: (percent: number) => void;
+  /** 取消信号：abort 后中止上传，Promise 以「上传已取消」的 ApiError 拒绝。 */
+  signal?: AbortSignal;
 }
 
 /**
@@ -86,6 +88,14 @@ export function createJobWithUpload(file: File, opts: UploadJobOptions = {}): Pr
       reject(new ApiError(xhr.status, detail || `HTTP ${xhr.status}`));
     };
     xhr.onerror = () => reject(new ApiError(0, "网络异常，上传失败"));
+    xhr.onabort = () => reject(new ApiError(0, "上传已取消"));
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        reject(new ApiError(0, "上传已取消"));
+        return;
+      }
+      opts.signal.addEventListener("abort", () => xhr.abort());
+    }
     xhr.send(form);
   });
 }

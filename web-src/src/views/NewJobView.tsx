@@ -51,10 +51,11 @@ export function NewJobView() {
   const [warn, setWarn] = useState<{ count: number } | null>(null);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [fsState, setFsState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
-  // 浏览器上传（远程 / Docker 部署的本地文件源）：进度百分比 + 隐藏 file input
+  // 浏览器上传（远程 / Docker 部署的本地文件源）：进度百分比 + 隐藏 file input + 取消句柄
   const [uploading, setUploading] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const desktopForm = useMemo(() => isDesktopApp(), []);
 
   // 模板下拉：全部模板（内置声明序在前，首个即「通用」），预选全局默认模板
@@ -199,12 +200,15 @@ export function NewJobView() {
       setUploading(true);
       setUploadPercent(0);
       requestNotifyIfNeeded();
+      const controller = new AbortController();
+      uploadAbortRef.current = controller;
       try {
         const data: JobResponse = await createJobWithUpload(file, {
           title: title.trim() || undefined,
           labels,
           summaryTemplate: templateValue || undefined,
           onProgress: setUploadPercent,
+          signal: controller.signal,
         });
         rememberJob(data.job_id);
         rememberLastLabels(labels);
@@ -213,10 +217,14 @@ export function NewJobView() {
         setView("status");
         void notifyIfQueued(data.job_id);
       } catch (e) {
-        showToast(friendlyError(e, "上传失败"), { kind: "error", ttl: 5000 });
+        // 用户主动取消是常规操作：静默回落，不弹错误
+        if (!controller.signal.aborted) {
+          showToast(friendlyError(e, "上传失败"), { kind: "error", ttl: 5000 });
+        }
       } finally {
         setUploading(false);
         setUploadPercent(0);
+        uploadAbortRef.current = null;
       }
     },
     [title, labels, templateValue, queryClient, setView, showToast, notifyIfQueued],
@@ -376,10 +384,10 @@ export function NewJobView() {
                   type="button"
                   id="uploadFileBtn"
                   className="secondary"
-                  disabled={uploading}
-                  onClick={() => uploadInputRef.current?.click()}
+                  title={uploading ? "中止本次上传" : undefined}
+                  onClick={() => (uploading ? uploadAbortRef.current?.abort() : uploadInputRef.current?.click())}
                 >
-                  {uploading ? `上传中 ${uploadPercent}%` : "上传本地文件…"}
+                  {uploading ? `上传中 ${uploadPercent}%（点击取消）` : "上传本地文件…"}
                 </button>
                 <span className="form-hint upload-hint">
                   服务部署在远程 / Docker 时从这里上传本机文件；本机部署用「浏览…」直接读取，无需上传。
