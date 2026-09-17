@@ -126,6 +126,41 @@ def test_upload_sanitizes_traversal_filename(tmp_path) -> None:
     assert stored.name == "win.mp4"
 
 
+def test_upload_long_filename_preserves_extension() -> None:
+    from pathlib import Path
+
+    # 超过 80 字符上限的合法文件名：限长只截 stem，扩展名保留、白名单不被误拒
+    for name in ("很" * 100 + ".mp4", "a" * 90 + ".mp4"):
+        res = _upload(name)
+        assert res.status_code == 200, res.json()
+        stored = Path(client.get(f"/api/v1/jobs/{res.json()['job_id']}").json()["source_path"]).name
+        assert stored.endswith(".mp4")
+        assert len(stored) <= 80
+        assert stored != ".mp4"  # 截断后不能只剩后缀
+
+
+def test_upload_name_collapsed_to_suffix_gets_fallback() -> None:
+    from pathlib import Path
+
+    # 危险字符折叠（? → -）+ 清洗后 stem 为空：回退固定名并保留扩展名
+    res = _upload("????.mp4")
+    assert res.status_code == 200
+    stored = Path(client.get(f"/api/v1/jobs/{res.json()['job_id']}").json()["source_path"]).name
+    assert stored == "upload.mp4"
+
+
+def test_upload_storage_failure_returns_500_with_hint(tmp_path, monkeypatch) -> None:
+    from video_to_summary.web import app as web_app
+
+    # 上传目录父路径被普通文件占据 → mkdir 抛 NotADirectoryError → 500 + 可行动指引
+    blocker = tmp_path / "afile"
+    blocker.write_text("not a dir", encoding="utf-8")
+    monkeypatch.setattr(web_app, "upload_base", lambda: str(blocker))
+    res = _upload("x.mp3")
+    assert res.status_code == 500
+    assert "VIDEO_TO_SUMMARY_UPLOAD_DIR" in res.json()["detail"]
+
+
 def test_failed_job_creation_cleans_up_uploaded_file(tmp_path) -> None:
     from pathlib import Path
 
@@ -200,6 +235,25 @@ def test_sweep_orphan_uploads(tmp_path) -> None:
     assert not orphan.exists()
     assert kept_dir.exists()
     assert (kept_dir / "kept.mp3").exists()
+
+
+def test_sweep_keeps_dir_with_nested_referenced_file(tmp_path) -> None:
+    """引用判定用前缀包含：深层嵌套引用的目录不得被误判为孤儿。"""
+    from video_to_summary.web.tasks import sweep_orphan_uploads
+
+    uploads = tmp_path / "uploads"
+    nested_file = uploads / ("b" * 32) / "sub" / "deep.mp3"
+    nested_file.parent.mkdir(parents=True)
+    nested_file.write_bytes(b"x" * 8)
+    # 任务直接引用嵌套深层文件（手动填路径可达的形态）
+    res = client.post(
+        "/api/v1/jobs",
+        json={"source_type": "local", "audio_path": str(nested_file), "title": "嵌套引用"},
+    )
+    assert res.status_code == 200
+
+    assert sweep_orphan_uploads() == 0
+    assert nested_file.exists()
 
 
 def test_health_exposes_upload_max_mb(monkeypatch) -> None:

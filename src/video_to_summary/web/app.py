@@ -459,14 +459,21 @@ def _upload_max_bytes() -> int:
 
 
 def _sanitize_upload_name(raw: str) -> str:
-    """上传文件名清洗：剥离目录成分（防穿越）→ 危险字符折叠为 - → 限长。
+    """上传文件名清洗：剥离目录成分（防穿越）→ 危险字符折叠为 - → 限长（保留扩展名）。
 
-    与产物下载名（_DOWNLOAD_UNSAFE_RE）同一字符口径；空结果回退固定名，
-    绝不让恶意文件名逃出服务端生成的 uuid 目录。
+    与产物下载名（_DOWNLOAD_UNSAFE_RE）同一字符口径；限长只截 stem、保留扩展名，
+    避免超长文件名被切掉后缀后被扩展名白名单误拒。清洗后为空时回退固定名
+    （有扩展名则保留之），绝不让恶意文件名逃出服务端生成的 uuid 目录。
     """
     name = os.path.basename((raw or "").replace("\\", "/")).strip()
-    name = _DOWNLOAD_UNSAFE_RE.sub("-", name)[:_DOWNLOAD_NAME_MAX].strip("-. ")
-    return name or "upload.bin"
+    name = _DOWNLOAD_UNSAFE_RE.sub("-", name)
+    suffix = Path(name).suffix
+    stem = name.removesuffix(suffix) if suffix else name
+    max_stem = max(1, _DOWNLOAD_NAME_MAX - len(suffix))
+    stem = stem[:max_stem].strip("-. ")
+    if stem:
+        return stem + suffix
+    return f"upload{suffix}" if suffix else "upload.bin"
 
 
 def _parse_labels_form(raw: str) -> list[str] | None:
@@ -514,16 +521,21 @@ async def create_job_upload_api(
     parsed_labels = _parse_labels_form(labels)
 
     max_bytes = _upload_max_bytes()
-    # Content-Length 预检：超限请求在读体之前就拒绝，不浪费带宽与磁盘
+    # Content-Length 预检：超限请求在读体之前就拒绝，不浪费带宽与磁盘。
+    # 畸形头解析失败时忽略预检（后续流式计数仍是最终防线），不因坏头 500
     declared = request.headers.get("content-length")
-    if declared and int(declared) > max_bytes:
+    try:
+        declared_bytes = int(declared) if declared else None
+    except ValueError:
+        declared_bytes = None
+    if declared_bytes is not None and declared_bytes > max_bytes:
         raise HTTPException(status_code=413, detail=f"文件超过大小上限（{max_bytes // (1024 * 1024)}MB）")
 
     upload_dir = Path(upload_base()) / uuid.uuid4().hex
-    upload_dir.mkdir(parents=True, exist_ok=True)
     target = upload_dir / safe_name
     tmp_target = upload_dir / f"{safe_name}.part"
     try:
+        upload_dir.mkdir(parents=True, exist_ok=True)
         import aiofiles
 
         async with aiofiles.open(tmp_target, "wb") as fh:
@@ -541,7 +553,15 @@ async def create_job_upload_api(
     except HTTPException:
         _cleanup_upload_dir(upload_dir)
         raise
-    except Exception as exc:  # noqa: BLE001 - 客户端断开/磁盘失败等统一 400
+    except OSError as exc:
+        # 落盘失败（上传目录配置错误/磁盘故障）与普通上传中断分开口径，给可行动指引
+        _cleanup_upload_dir(upload_dir)
+        logger.exception("upload storage failure (upload_base=%s)", upload_base())
+        raise HTTPException(
+            status_code=500,
+            detail="上传落盘失败：请检查上传目录配置（VIDEO_TO_SUMMARY_UPLOAD_DIR）与磁盘权限",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - 客户端断开等统一 400
         _cleanup_upload_dir(upload_dir)
         logger.warning("upload aborted before job creation: %s", exc)
         raise HTTPException(status_code=400, detail="上传中断或写入失败，请重试") from exc

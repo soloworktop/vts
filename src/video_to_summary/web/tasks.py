@@ -224,7 +224,10 @@ def sweep_orphan_uploads() -> int:
         try:
             if child.is_file():
                 continue  # 托管布局只有目录；散落文件不属本清扫职责
-            if any(str(p.resolve()) in referenced for p in child.iterdir()):
+            # 引用判定用「前缀包含」而非遍历目录内容：引用路径位于该目录之下
+            # （任意深度嵌套）即保留——iterdir 只看直接子项会漏检深层引用
+            child_prefix = str(child.resolve()) + os.sep
+            if any(ref.startswith(child_prefix) for ref in referenced):
                 continue
             shutil.rmtree(child, ignore_errors=True)
             removed += 1
