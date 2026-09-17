@@ -1,10 +1,20 @@
 // ============ 新建总结视图 ============
 // 创建表单（URL/本地文件 + 模板选择 + 标题 + 标签）、最近来源历史、
-// 本地文件辅助（原生选择器 + 目录浏览面板）、重复来源软提示、首跑引导卡。
-import { useCallback, useEffect, useMemo, useState } from "react";
+// 本地文件辅助（原生选择器 + 目录浏览面板 + 浏览器上传）、重复来源软提示、首跑引导卡。
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { browseFs, createJob, fetchJobs, fetchSettings, fetchTemplates, pickFile, type CreateJobPayload } from "../api/endpoints";
-import { desktopApi } from "../lib/desktop";
+import {
+  browseFs,
+  createJob,
+  createJobWithUpload,
+  fetchJobs,
+  fetchSettings,
+  fetchTemplates,
+  pickFile,
+  type CreateJobPayload,
+} from "../api/endpoints";
+import type { JobResponse } from "../api/types";
+import { desktopApi, isDesktopApp } from "../lib/desktop";
 import { RECENT_PATHS_KEY, RECENT_URLS_KEY } from "../lib/constants";
 import { rememberJob, rememberLastLabels, rememberRecentSource, storedLastLabels } from "../lib/recent";
 import { friendlyError } from "../lib/format";
@@ -15,6 +25,13 @@ import { TagEditor } from "../components/TagEditor";
 import { RecentSelect } from "../components/RecentSelect";
 
 type SourceTab = "url" | "local";
+
+// 与后端上传端点 / fs/browse 的媒体扩展名白名单对齐（app.py::_MEDIA_EXTS）
+const UPLOAD_MEDIA_EXTS = [
+  ".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".wmv", ".m4v", ".mpg", ".mpeg", ".ts",
+  ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
+];
+const UPLOAD_ACCEPT_ATTR = UPLOAD_MEDIA_EXTS.join(",");
 
 // 本会话内已确认过「仍要创建」的 URL：同一 URL 不反复打扰（模块级，跨视图切换保留）
 const warnedUrls = new Set<string>();
@@ -34,6 +51,11 @@ export function NewJobView() {
   const [warn, setWarn] = useState<{ count: number } | null>(null);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [fsState, setFsState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
+  // 浏览器上传（远程 / Docker 部署的本地文件源）：进度百分比 + 隐藏 file input
+  const [uploading, setUploading] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const desktopForm = useMemo(() => isDesktopApp(), []);
 
   // 模板下拉：全部模板（内置声明序在前，首个即「通用」），预选全局默认模板
   const { data: templatesData } = useQuery({ queryKey: ["templates"], queryFn: fetchTemplates });
@@ -66,6 +88,24 @@ export function NewJobView() {
     /\b(bilibili\.com|b23\.tv)\//i.test(url) &&
     !(settings?.cookies_browser ?? "");
 
+  // 已有任务在跑时明确告知「只是排队」（创建与上传两条链路共用）
+  const notifyIfQueued = useCallback(
+    async (excludeJobId: string) => {
+      try {
+        const page = await fetchJobs({ limit: 200 });
+        const others = page.jobs.filter(
+          (j) => j.job_id !== excludeJobId && (j.status === "running" || j.status === "pending"),
+        );
+        if (others.length) {
+          showToast(`已加入队列，当前还有 ${others.length} 个任务在后台运行`, { ttl: 4000 });
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [showToast],
+  );
+
   const createMutation = useMutation({
     mutationFn: (payload: CreateJobPayload) => createJob(payload),
     onSuccess: async (data) => {
@@ -76,18 +116,7 @@ export function NewJobView() {
       queryClient.invalidateQueries({ queryKey: ["jobs-count"] });
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setView("status");
-      // 已有任务在跑时明确告知「只是排队」
-      try {
-        const page = await fetchJobs({ limit: 200 });
-        const others = page.jobs.filter(
-          (j) => j.job_id !== data.job_id && (j.status === "running" || j.status === "pending"),
-        );
-        if (others.length) {
-          showToast(`已加入队列，当前还有 ${others.length} 个任务在后台运行`, { ttl: 4000 });
-        }
-      } catch {
-        /* ignore */
-      }
+      void notifyIfQueued(data.job_id);
     },
     onError: (e) => {
       showToast(friendlyError(e, "创建任务失败"), { kind: "error", ttl: 5000 });
@@ -149,6 +178,49 @@ export function NewJobView() {
       setTemplateValue(preferredTemplate);
     }
   }, [templates, preferredTemplate, templateValue]);
+
+  // 浏览器上传链路：选文件即上传并建任务（一步完成）。服务端路径前端不可知，
+  // 故不做「最近路径」记忆，也不做重复来源软提示（uuid 路径天然不重复）。
+  const onUploadFilePicked = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      const dot = file.name.lastIndexOf(".");
+      const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+      if (!UPLOAD_MEDIA_EXTS.includes(ext)) {
+        showToast("不支持的文件类型：请选择音/视频文件", { kind: "error" });
+        return;
+      }
+      const maxMb = useAppStore.getState().health?.upload_max_mb;
+      if (maxMb && file.size > maxMb * 1024 * 1024) {
+        showToast(`文件超过大小上限（${maxMb}MB）`, { kind: "error" });
+        return;
+      }
+      setWarn(null);
+      setUploading(true);
+      setUploadPercent(0);
+      requestNotifyIfNeeded();
+      try {
+        const data: JobResponse = await createJobWithUpload(file, {
+          title: title.trim() || undefined,
+          labels,
+          summaryTemplate: templateValue || undefined,
+          onProgress: setUploadPercent,
+        });
+        rememberJob(data.job_id);
+        rememberLastLabels(labels);
+        queryClient.invalidateQueries({ queryKey: ["jobs-count"] });
+        queryClient.invalidateQueries({ queryKey: ["history"] });
+        setView("status");
+        void notifyIfQueued(data.job_id);
+      } catch (e) {
+        showToast(friendlyError(e, "上传失败"), { kind: "error", ttl: 5000 });
+      } finally {
+        setUploading(false);
+        setUploadPercent(0);
+      }
+    },
+    [title, labels, templateValue, queryClient, setView, showToast, notifyIfQueued],
+  );
 
   const countDuplicateSource = useCallback(async (q: string): Promise<number> => {
     const norm = (q || "").trim().replace(/\/+$/, "");
@@ -285,6 +357,35 @@ export function NewJobView() {
                 onPick={(v) => setAudioPath(v)}
               />
             </div>
+            {!desktopForm && (
+              <div className="local-tools upload-row">
+                <input
+                  ref={uploadInputRef}
+                  id="uploadFileInput"
+                  type="file"
+                  accept={UPLOAD_ACCEPT_ATTR}
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = ""; // 重置以便同文件二次选择
+                    void onUploadFilePicked(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  id="uploadFileBtn"
+                  className="secondary"
+                  disabled={uploading}
+                  onClick={() => uploadInputRef.current?.click()}
+                >
+                  {uploading ? `上传中 ${uploadPercent}%` : "上传本地文件…"}
+                </button>
+                <span className="form-hint upload-hint">
+                  服务部署在远程 / Docker 时从这里上传本机文件；本机部署用「浏览…」直接读取，无需上传。
+                </span>
+              </div>
+            )}
             {browserOpen && (
               <div id="webFileBrowser" className="file-browser">
                 {fsState.loading && <div className="file-browser-status">加载中…</div>}

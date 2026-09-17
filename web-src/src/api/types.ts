@@ -6,13 +6,15 @@
 // 插件经 hooks.declare_capabilities 动态声明的可选能力集合；核心构建（0 插件）恒为空对象。
 export type Capabilities = Record<string, boolean>;
 
-// ---- 健康检查 GET /api/v1/health（app.py:491） ----
+// ---- 健康检查 GET /api/v1/health（app.py::health_api） ----
 export interface Health {
   status: string;
   version: string;
   llm_configured: boolean;
   config_import: Record<string, { count: number; at?: number }>;
   db_newer_version: number | null;
+  // 浏览器上传大小上限（MB，VTS_UPLOAD_MAX_MB）：新建任务页选文件时预校验
+  upload_max_mb: number;
 }
 
 // ---- 任务 ----

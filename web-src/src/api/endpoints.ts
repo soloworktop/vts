@@ -1,5 +1,5 @@
 // ============ 端点函数：组件只 import 这里，不直接拼 URL ============
-import { api, apiFetch, downloadUrl } from "./client";
+import { API_BASE, ApiError, api, apiFetch, downloadUrl } from "./client";
 import type {
   Capabilities,
   Label,
@@ -42,6 +42,53 @@ export interface CreateJobPayload {
 }
 
 export const createJob = (payload: CreateJobPayload) => api.post<JobResponse>("/jobs", payload);
+
+export interface UploadJobOptions {
+  title?: string;
+  labels?: string[];
+  summaryTemplate?: string;
+  /** 上传进度回调（0-100 整数；fetch 无上传进度，故本函数走 XHR）。 */
+  onProgress?: (percent: number) => void;
+}
+
+/**
+ * 浏览器直传本地文件创建任务（POST /api/v1/jobs/upload，multipart 一步完成落盘+建任务）。
+ *
+ * 服务部署在远程 / Docker 时「本地文件」源的唯一通路（容器看不到用户本机文件）；
+ * 本机部署建议走服务端「浏览…」零拷贝直读。XHR 而非 fetch：上传进度只有 XHR 提供。
+ */
+export function createJobWithUpload(file: File, opts: UploadJobOptions = {}): Promise<JobResponse> {
+  return new Promise<JobResponse>((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (opts.title) form.append("title", opts.title);
+    if (opts.summaryTemplate) form.append("summary_template", opts.summaryTemplate);
+    if (opts.labels && opts.labels.length) form.append("labels", JSON.stringify(opts.labels));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE}/jobs/upload`);
+    xhr.responseType = "json";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && opts.onProgress) {
+        opts.onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      const body = xhr.response as JobResponse | { detail?: string } | null;
+      if (xhr.status >= 200 && xhr.status < 300 && body && "job_id" in body) {
+        resolve(body);
+        return;
+      }
+      const detail =
+        body && typeof body === "object" && typeof (body as { detail?: unknown }).detail === "string"
+          ? (body as { detail: string }).detail
+          : "";
+      reject(new ApiError(xhr.status, detail || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "网络异常，上传失败"));
+    xhr.send(form);
+  });
+}
 
 export interface ListJobsParams {
   label?: string | null;
