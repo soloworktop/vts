@@ -11,6 +11,7 @@ canonical 前缀为 **`/api/v1`**；过渡别名 `/api/*` 已随前端切换（M
 | GET | `/api/v1/health` | 服务状态、版本、LLM 是否已配置、DB schema 提示 |
 | GET | `/api/v1/capabilities` | 能力集合（见上） |
 | POST | `/api/v1/jobs` | 创建任务 |
+| POST | `/api/v1/jobs/upload` | 上传本地文件并创建任务（multipart 一步完成，见下） |
 | GET | `/api/v1/jobs` | 列表（`label` / `unlabeled` / `limit` / `offset` / `q` 全文检索） |
 | GET | `/api/v1/jobs/export` | 导出历史数据 zip |
 | POST | `/api/v1/jobs/import` | 导入历史数据 zip |
@@ -45,3 +46,18 @@ canonical 前缀为 **`/api/v1`**；过渡别名 `/api/*` 已随前端切换（M
 
 设置 `VIDEO_TO_SUMMARY_TOKEN` 后，所有 `/api/v1` 请求需带 `Authorization: Bearer <TOKEN>`
 或 `X-Auth-Token`。暴露到局域网/公网前**必须**配置。
+
+## 上传任务源（POST /api/v1/jobs/upload）
+
+`multipart/form-data` 字段：`file`（必填，音/视频文件，扩展名白名单与 `/fs/browse`
+一致）、`title`（可选）、`labels`（可选，JSON 数组字符串，如 `["a","b"]`）、
+`summary_template`（可选）。响应与 `POST /jobs` 相同（`job_id` + `status`）。
+
+- 一步完成「落盘 + 建任务」：文件流式写入 `<uploads>/<uuid>/<安全文件名>`（`.part`
+  临时文件 + 原子替换），随后按 `source_type: local` 入库执行，重试语义与本地文件源一致
+- 大小上限 `VTS_UPLOAD_MAX_MB`（MB，默认 2048）：超限返回 413；`GET /health` 的
+  `upload_max_mb` 字段可供客户端预校验
+- 上传文件归服务端托管：`DELETE /jobs/{job_id}` 时连带删除（区别于用户自己的本地
+  文件，后者永不删除）；启动时会自动清扫进程崩溃残留的孤儿上传目录
+- 上传目录默认 `<产物基目录>/uploads`，环境变量 `VIDEO_TO_SUMMARY_UPLOAD_DIR` 可覆盖
+  （Docker 部署默认落在 `/output/uploads`，随 `vts_output` 卷持久化）

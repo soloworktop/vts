@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from video_to_summary.config import SubtitleConfig
-from video_to_summary.constants import JobEvent, JobStatus, SourceType
+from video_to_summary.constants import JobEvent, JobStatus, SourceType, UPLOADS_DIR_NAME
 from video_to_summary.pipeline import run
 from video_to_summary.sources.local import LocalAudioSource
 from video_to_summary.sources.url import URLAudioSource
@@ -160,6 +160,79 @@ def output_base() -> str:
     """任务输出根目录：默认相对 cwd 的 ``output/``；桌面版通过
     ``VIDEO_TO_SUMMARY_OUTPUT_DIR`` 指向平台用户数据目录。"""
     return os.environ.get("VIDEO_TO_SUMMARY_OUTPUT_DIR", "output")
+
+
+def upload_base() -> str:
+    """浏览器上传源文件的托管根目录：默认 ``<output_base>/uploads``；
+    ``VIDEO_TO_SUMMARY_UPLOAD_DIR`` 可覆盖。
+
+    不放 ``output/<job_id>/``：retry 会清空该目录（缓存失效语义），源文件放里面
+    会被误删。放 output_base 之下则 Docker 场景自动落到 ``/output/uploads``
+    （named volume、UID 10001 可写），无需额外部署改动。
+    """
+    override = os.environ.get("VIDEO_TO_SUMMARY_UPLOAD_DIR", "").strip()
+    if override:
+        return override
+    return os.path.join(output_base(), UPLOADS_DIR_NAME)
+
+
+def is_managed_upload(path: str | None) -> bool:
+    """audio_path 是否为服务端托管的上传文件（位于 upload_base 之内）。
+
+    resolve + 前缀校验（``../`` 逃逸形态不会误判），与 ``app._resolve_job_file``
+    同一防逃逸口径。用户自己的本地文件（路径在 uploads 之外）恒为 False。
+    """
+    if not path:
+        return False
+    try:
+        target = Path(path).resolve()
+        base = Path(upload_base()).resolve()
+    except OSError:
+        return False
+    return target != base and str(target).startswith(str(base) + os.sep)
+
+
+def sweep_orphan_uploads() -> int:
+    """启动时清扫孤儿上传：删除不被任何任务 payload 引用的 uploads 子目录。
+
+    上传与建任务在同一请求内完成，正常路径无孤儿；进程在「上传落盘后、建任务
+    完成前」崩溃会留下无人引用的目录。引用集来自 DB 全部任务的 payload；
+    读取失败时放弃清扫（宁可暂留，不可误删）。
+    """
+    base = Path(upload_base())
+    if not base.is_dir():
+        return 0
+    referenced: set[str] = set()
+    try:
+        db.init_db()
+        with db.get_conn() as conn:
+            rows = conn.execute("SELECT payload FROM jobs").fetchall()
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except (TypeError, ValueError):
+                continue
+            audio = payload.get("audio_path") or payload.get("file_path")
+            if audio:
+                referenced.add(str(Path(audio).resolve()))
+    except Exception:  # noqa: BLE001 - 引用集不可用时不动任何文件
+        logger.warning("orphan upload sweep skipped: failed to read job payloads", exc_info=True)
+        return 0
+
+    removed = 0
+    for child in sorted(base.iterdir()):
+        try:
+            if child.is_file():
+                continue  # 托管布局只有目录；散落文件不属本清扫职责
+            if any(str(p.resolve()) in referenced for p in child.iterdir()):
+                continue
+            shutil.rmtree(child, ignore_errors=True)
+            removed += 1
+        except OSError:  # noqa: PERF203 - 单个目录清扫失败不影响其余
+            continue
+    if removed:
+        logger.info("swept %d orphan upload dir(s) under %s", removed, base)
+    return removed
 
 
 class Job:
@@ -701,7 +774,9 @@ def delete_job(job_id: str) -> None:
     避免删掉正在写入的文件导致 pipeline 状态错乱。
 
     本地源的原始输入文件（audio_path 指向用户自己的文件）不删除，只清理任务产物目录
-    ``output/<job_id>/``。删除不存在的任务抛 KeyError。
+    ``output/<job_id>/``；例外：浏览器上传的源文件（audio_path 位于 uploads 托管目录内）
+    归服务端所有，删除任务时连带回收，避免留下无人引用的孤儿文件。删除不存在的任务抛
+    KeyError。
 
     删除顺序：先删 DB 记录（成功即视为任务已注销），再清理文件。若文件清理失败，
     DB 中已无记录，残留文件可由定期清理兜底；反之文件已删但 DB 记录残留的「幽灵记录」
@@ -737,6 +812,22 @@ def delete_job(job_id: str) -> None:
         except OSError as exc:
             # 文件清理失败不回滚 DB 删除，记录日志便于事后排查残留
             logger.warning("job %s output dir cleanup failed (db record already deleted): %s", job_id, exc)
+
+    # 4) 托管上传源文件连带回收（用户自己的本地文件不在此列，永不删除）。
+    # 上传布局为 uploads/<uuid>/<文件名>，删除文件所在的 uuid 子目录；
+    # 文件直接位于 uploads 根的非标准布局只删文件本身，绝不 rmtree 托管根。
+    audio_path = job.payload.get("audio_path") or job.payload.get("file_path")
+    if audio_path and is_managed_upload(audio_path):
+        try:
+            target = Path(audio_path).resolve()
+            base = Path(upload_base()).resolve()
+            if target.parent != base:
+                shutil.rmtree(target.parent, ignore_errors=True)
+            else:
+                target.unlink(missing_ok=True)
+            logger.info("job %s uploaded source removed: %s", job_id, audio_path)
+        except OSError as exc:
+            logger.warning("job %s uploaded source cleanup failed: %s", job_id, exc)
 
 
 def _make_cancel_check(job_id: str, start_mono: float, timeout: float) -> Callable[[], None]:
@@ -1025,4 +1116,7 @@ __all__ = [
     "delete_job",
     "resume_pending_jobs",
     "output_base",
+    "upload_base",
+    "is_managed_upload",
+    "sweep_orphan_uploads",
 ]

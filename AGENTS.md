@@ -112,6 +112,11 @@ VTS_LIVE_E2E=1 bash scripts/e2e.sh live  # 真实边界端到端（真实下载/
 - **产物**（不入库）：`output/<job_id>/`（Web；`VIDEO_TO_SUMMARY_OUTPUT_DIR` 可覆盖
   基目录）或 `output/`（CLI），含 `.txt`/`.segments.json`/`.srt`/`.polished.txt`
   （启用文本优化时）`/.summary.md`；pipeline 按「文件存在即命中缓存」读写，DB 只存路径
+- **上传源文件**（不入库）：浏览器直传的本地文件（`POST /api/v1/jobs/upload`）存
+  `<产物基目录>/uploads/<uuid>/<安全文件名>`（`VIDEO_TO_SUMMARY_UPLOAD_DIR` 可覆盖；
+  **不得**放进 `output/<job_id>/`——retry 清空产物目录会误删源）。归服务端托管：
+  `delete_job` 检测 `audio_path` 在 uploads 内则连带回收；启动时
+  `sweep_orphan_uploads()` 清扫无任务引用的残留目录
 - **加密**：API Key 明文不落盘；`api_key` 存 Fernet 密文（`enc:v1:` 前缀），密钥独立
   `enc_key` 文件；数据库文件启动时 chmod 0o600
 - 版本号：`get_version()` 优先读 `VIDEO_TO_SUMMARY_VERSION`（外部构建可注入版本号，

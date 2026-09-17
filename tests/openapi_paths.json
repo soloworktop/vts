@@ -8,6 +8,7 @@
   "/api/v1/jobs",
   "/api/v1/jobs/export",
   "/api/v1/jobs/import",
+  "/api/v1/jobs/upload",
   "/api/v1/jobs/{}",
   "/api/v1/jobs/{}/cancel",
   "/api/v1/jobs/{}/export",

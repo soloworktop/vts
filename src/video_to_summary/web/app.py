@@ -4,12 +4,14 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
+import uuid
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +40,8 @@ from .tasks import (
     output_base,
     resume_pending_jobs,
     retry_job,
+    sweep_orphan_uploads,
+    upload_base,
 )
 from ..summarizers.openai import SUMMARY_TEMPLATES
 from .template_store import delete_template, get_template, list_templates, save_template
@@ -119,6 +123,12 @@ async def lifespan(app: FastAPI):
         backfill_missing_index()
     except Exception:  # noqa: BLE001 - 索引补漏失败不阻塞服务（检索自动降级）
         logger.exception("failed to backfill fts index on startup")
+    try:
+        # 孤儿上传清扫：进程在「上传落盘后、建任务完成前」崩溃残留的
+        # uploads/<uuid>/ 目录（引用判定失败时自动放弃，绝不误删）
+        sweep_orphan_uploads()
+    except Exception:  # noqa: BLE001 - 清扫失败不阻塞服务
+        logger.exception("failed to sweep orphan uploads on startup")
     yield
 
 
@@ -370,28 +380,38 @@ async def capabilities_api() -> JSONResponse:
 
 # ============ 任务 ============
 
-@api_post("/jobs", response_model=JobResponse)
-async def create_job_api(payload: JobPayload) -> JobResponse:
-    if payload.source_type == "url" and not payload.url:
-        raise HTTPException(status_code=400, detail="url is required for url source")
-    if payload.source_type == "local" and not payload.audio_path:
-        raise HTTPException(status_code=400, detail="audio_path is required for local source")
+def _create_job_from_values(
+    *,
+    source_type: str,
+    url: str | None = None,
+    audio_path: str | None = None,
+    title: str | None = None,
+    labels: list[str] | None = None,
+    summary_template: str | None = None,
+) -> JobResponse:
+    """建任务核心：POST /jobs 与 POST /jobs/upload 共用。
 
-    # 处理配置只来自全局默认；表单提供源/标题/标签 + 唯一的单任务配置「总结模板」
+    处理配置只来自全局默认；调用方提供源/标题/标签 + 唯一的单任务配置「总结模板」。
+    """
     job_payload = job_defaults_payload()
-    for key in ("source_type", "url", "audio_path", "title", "labels"):
-        value = getattr(payload, key, None)
+    for key, value in (
+        ("source_type", source_type),
+        ("url", url),
+        ("audio_path", audio_path),
+        ("title", title),
+        ("labels", labels),
+    ):
         if value is not None:
             job_payload[key] = value
     # 单任务总结模板：显式选择时校验存在性（内置 + 自定义 + 兼容别名），覆盖全局默认
     # 写入 payload（别名归一化为现名，如历史名 "default" → "通用"）；运行时
     # _build_settings 从 payload 构造 Settings，模板即随之生效
-    if payload.summary_template:
+    if summary_template:
         from video_to_summary.summarizers.openai import TEMPLATE_ALIASES
 
-        template_name = TEMPLATE_ALIASES.get(payload.summary_template, payload.summary_template)
+        template_name = TEMPLATE_ALIASES.get(summary_template, summary_template)
         if template_name not in list_templates():
-            raise HTTPException(status_code=400, detail=f"unknown summary template: {payload.summary_template}")
+            raise HTTPException(status_code=400, detail=f"unknown summary template: {summary_template}")
         job_payload["summary_template"] = template_name
 
     try:
@@ -401,6 +421,143 @@ async def create_job_api(payload: JobPayload) -> JobResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     enqueue_job(job)
     return JobResponse(job_id=job.job_id, status=job.status)
+
+
+@api_post("/jobs", response_model=JobResponse)
+async def create_job_api(payload: JobPayload) -> JobResponse:
+    if payload.source_type == "url" and not payload.url:
+        raise HTTPException(status_code=400, detail="url is required for url source")
+    if payload.source_type == "local" and not payload.audio_path:
+        raise HTTPException(status_code=400, detail="audio_path is required for local source")
+
+    return _create_job_from_values(
+        source_type=payload.source_type,
+        url=payload.url,
+        audio_path=payload.audio_path,
+        title=payload.title,
+        labels=payload.labels,
+        summary_template=payload.summary_template,
+    )
+
+
+# ============ 浏览器上传任务源 ============
+# 远程 / Docker 部署下容器看不到用户本机文件，「本地文件」源的补充入口：
+# 浏览器直传 → 服务端流式落盘 uploads/<uuid>/ → 与 POST /jobs 完全相同的建任务核心。
+# 本机部署不需要它（服务端原生选择框 / 目录浏览零拷贝直读），前端两个入口并存。
+
+# 流式写盘的分块大小（UploadFile.read 步长；磁盘顺序写，1MB 足够大文件吞吐）
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def _upload_max_bytes() -> int:
+    """上传大小上限（字节）：``VTS_UPLOAD_MAX_MB``，默认 2048MB。"""
+    try:
+        mb = max(1, int(os.environ.get("VTS_UPLOAD_MAX_MB", "2048")))
+    except (TypeError, ValueError):
+        mb = 2048
+    return mb * 1024 * 1024
+
+
+def _sanitize_upload_name(raw: str) -> str:
+    """上传文件名清洗：剥离目录成分（防穿越）→ 危险字符折叠为 - → 限长。
+
+    与产物下载名（_DOWNLOAD_UNSAFE_RE）同一字符口径；空结果回退固定名，
+    绝不让恶意文件名逃出服务端生成的 uuid 目录。
+    """
+    name = os.path.basename((raw or "").replace("\\", "/")).strip()
+    name = _DOWNLOAD_UNSAFE_RE.sub("-", name)[:_DOWNLOAD_NAME_MAX].strip("-. ")
+    return name or "upload.bin"
+
+
+def _parse_labels_form(raw: str) -> list[str] | None:
+    """multipart 的 labels 表单字段（JSON 数组字符串）解析；空串 = 未提供。"""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="labels 必须是 JSON 数组字符串，如 [\"a\",\"b\"]") from exc
+    if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+        raise HTTPException(status_code=400, detail="labels 必须是字符串数组")
+    return data
+
+
+def _cleanup_upload_dir(upload_dir: Path) -> None:
+    """上传中断/建任务失败时的半传文件回收（best-effort，不掩盖原始异常）。"""
+    shutil.rmtree(upload_dir, ignore_errors=True)
+
+
+@api_post("/jobs/upload", response_model=JobResponse)
+async def create_job_upload_api(
+    request: Request,
+    file: UploadFile = File(...),
+    title: str = Form(default=""),
+    labels: str = Form(default=""),
+    summary_template: str = Form(default=""),
+) -> JobResponse:
+    """浏览器直传本地音视频文件创建任务（一步完成：落盘 + 建任务）。
+
+    - 文件流式写盘 ``uploads/<uuid>/<安全文件名>``（.part 临时 + os.replace 原子
+      落盘，仓库「产物一律原子写」铁律），分块计数超限即断（413）并清理半传文件
+    - 建任务复用 POST /jobs 的核心（全局默认配置 + 标签 + 单任务总结模板）；
+      建任务失败时回收已落盘文件，不留孤儿
+    - 上传文件归服务端托管：DELETE /jobs/{id} 时连带删除（用户自己的本地文件
+      永不删除，语义见 delete_job）
+    - 扩展名白名单与 /fs/browse 一致（_MEDIA_EXTS）
+    """
+    safe_name = _sanitize_upload_name(file.filename or "")
+    ext = Path(safe_name).suffix.lower()
+    if ext not in _MEDIA_EXTS:
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {ext or '(无扩展名)'}；"
+                                                   f"支持：{', '.join(sorted(_MEDIA_EXTS))}")
+    parsed_labels = _parse_labels_form(labels)
+
+    max_bytes = _upload_max_bytes()
+    # Content-Length 预检：超限请求在读体之前就拒绝，不浪费带宽与磁盘
+    declared = request.headers.get("content-length")
+    if declared and int(declared) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"文件超过大小上限（{max_bytes // (1024 * 1024)}MB）")
+
+    upload_dir = Path(upload_base()) / uuid.uuid4().hex
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target = upload_dir / safe_name
+    tmp_target = upload_dir / f"{safe_name}.part"
+    try:
+        import aiofiles
+
+        async with aiofiles.open(tmp_target, "wb") as fh:
+            received = 0
+            while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+                received += len(chunk)
+                if received > max_bytes:
+                    # Content-Length 可伪造/缺失（chunked 上传），流式计数是最终防线
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件超过大小上限（{max_bytes // (1024 * 1024)}MB）",
+                    )
+                await fh.write(chunk)
+        os.replace(tmp_target, target)  # 原子落盘：绝无半写文件被当作有效产物
+    except HTTPException:
+        _cleanup_upload_dir(upload_dir)
+        raise
+    except Exception as exc:  # noqa: BLE001 - 客户端断开/磁盘失败等统一 400
+        _cleanup_upload_dir(upload_dir)
+        logger.warning("upload aborted before job creation: %s", exc)
+        raise HTTPException(status_code=400, detail="上传中断或写入失败，请重试") from exc
+
+    try:
+        return _create_job_from_values(
+            source_type="local",
+            audio_path=str(target),
+            title=(title or "").strip() or None,
+            labels=parsed_labels,
+            summary_template=(summary_template or "").strip() or None,
+        )
+    except Exception:
+        # 建任务失败（标签非法/模板不存在等）→ 上传文件一并回收，不留孤儿
+        _cleanup_upload_dir(upload_dir)
+        raise
 
 
 @api_get("/jobs")
@@ -595,7 +752,8 @@ async def health_api() -> JSONResponse:
     # config_import 带出旧版 JSON 一次性迁移的结果（前端据此弹一次性提示）；
     # version 来自 git tag（发布构建）或 git describe（开发态），前端侧栏展示；
     # db_newer_version：本地数据库由更新版本创建时返回其 schema 版本号（否则 None），
-    # 前端据此常驻提示「请升级」（旧版读新版库 fail-open，见 db._apply_migrations）。
+    # 前端据此常驻提示「请升级」（旧版读新版库 fail-open，见 db._apply_migrations）；
+    # upload_max_mb：浏览器上传的大小上限（VTS_UPLOAD_MAX_MB），前端选文件时预校验
     from .llm_store import has_configured_key
 
     return JSONResponse(
@@ -605,6 +763,7 @@ async def health_api() -> JSONResponse:
             "llm_configured": has_configured_key(),
             "config_import": _legacy_import_info(),
             "db_newer_version": db.db_newer_version(),
+            "upload_max_mb": _upload_max_bytes() // (1024 * 1024),
         }
     )
 

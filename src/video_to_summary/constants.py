@@ -8,6 +8,10 @@
 # 不落库（见 web/label_store.py）；创建同名真实标签被拒绝
 UNCATEGORIZED_LABEL = "未分类"
 
+# 浏览器上传源文件的托管目录名（位于 upload_base 下，每个上传一个 uuid 子目录）。
+# 上传文件归服务端托管：任务删除时连带回收，区别于用户自己的本地文件（永不删除）
+UPLOADS_DIR_NAME = "uploads"
+
 
 class JobStatus:
     PENDING = "pending"

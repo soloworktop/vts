@@ -281,7 +281,7 @@ canonical API 前缀为 **`/api/v1`**。不同深度的内容按需进入：
 | 文档 | 内容 |
 |---|---|
 | [服务内使用手册](http://127.0.0.1:8080/guide) | 面向日常使用的图文手册（随服务自带） |
-| [`docs/api.md`](docs/api.md) | HTTP API 全表（34 个端点）与 `VIDEO_TO_SUMMARY_TOKEN` 鉴权——暴露局域网 / 公网前**必须**配置 |
+| [`docs/api.md`](docs/api.md) | HTTP API 全表（35 个端点）与 `VIDEO_TO_SUMMARY_TOKEN` 鉴权——暴露局域网 / 公网前**必须**配置 |
 | [`docs/configuration.md`](docs/configuration.md) | 环境变量全量语义（含兼容别名）、数据位置判据、版本号注入 |
 | [`docs/plugins.md`](docs/plugins.md) | 插件挂载点、entry point 写法与能力声明 |
 | [`docker/README.md`](docker/README.md) | Docker 部署、配置、升级与网络风控（B 站 412） |

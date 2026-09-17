@@ -93,6 +93,8 @@ bash scripts/docker.sh up
 | `PORT` | 容器内监听端口 | `8080` |
 | `VIDEO_TO_SUMMARY_DB` | SQLite 库路径 | `/data/app.db` |
 | `VIDEO_TO_SUMMARY_OUTPUT_DIR` | 产物目录 | `/output` |
+| `VIDEO_TO_SUMMARY_UPLOAD_DIR` | 浏览器上传源文件的托管目录（默认在产物目录下） | `/output/uploads` |
+| `VTS_UPLOAD_MAX_MB` | 浏览器上传单文件大小上限（MB） | `2048` |
 | `VIDEO_TO_SUMMARY_TOKEN` | 可选鉴权 Token（暴露到局域网/公网前**必须**配置） | 空 |
 | `VIDEO_TO_SUMMARY_MAX_CONCURRENT` | Web 同时运行任务数上限 | `2` |
 | `VIDEO_TO_SUMMARY_JOB_TIMEOUT` | 单任务超时秒数 | `0` = 不限 |
@@ -134,10 +136,14 @@ bash scripts/docker.sh up
 | 卷 | 挂载点 | 内容 |
 |---|---|---|
 | `vts_data` | `/data` | SQLite 库 `app.db`（含任务、标签、加密后的 LLM Key）、`enc_key` |
-| `vts_output` | `/output` | 任务产物（`.txt` / `.srt` / `.segments.json` / `.summary.md`） |
+| `vts_output` | `/output` | 任务产物（`.txt` / `.srt` / `.segments.json` / `.summary.md`）；浏览器上传的源文件也在其下 `uploads/` 子目录 |
 
 两个都是 Docker **named volume**：`docker compose down` 不会删除数据；
 需要彻底清空时用 `docker volume rm vts_vts_data vts_vts_output`。
+
+> 浏览器上传的源文件存 `/output/uploads/`（`VIDEO_TO_SUMMARY_UPLOAD_DIR` 可指向别处）。
+> 改成 bind mount 宿主机目录时注意权限：容器内以 UID 10001 运行，宿主机目录需对该
+> UID 可写（与「映射宿主目录」的既有约定一致）。
 
 > 卷名为什么带双 `vts_` 前缀：compose 顶层固定项目名 `name: vts`（不随目录名走——
 > 本文件位于 `docker/` 目录，不固定则项目名默认取目录名 `docker`，容易与其他放在
