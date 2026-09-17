@@ -52,7 +52,7 @@ SQLite 库路径解析（`db.py::resolve_database_path`，纯函数、可单测�
 | `VIDEO_TO_SUMMARY_JOB_TIMEOUT` | 单任务超时秒数（默认 0 = 不限） |
 | `VIDEO_TO_SUMMARY_TOKEN` | 可选 Bearer 鉴权：设置后所有 `/api/v1` 请求需带 `Authorization: Bearer <TOKEN>` 或 `X-Auth-Token`；暴露局域网/公网前**必须**配置（见 `docs/api.md`） |
 | `VIDEO_TO_SUMMARY_VERSION` | 版本号注入（见上文） |
-| `VTS_STATIC_DIR` | 自定义前端静态目录：指向**含 `index.html` 的目录**时首页与 `/static/*` 改由该目录提供；无效时回落包内目录并打一次 warning（见 `README.md`「进阶」） |
+| `VTS_STATIC_DIR` | 自定义前端静态目录：指向**含 `index.html` 的目录**时首页与 `/static/*` 改由该目录提供；无效时回落包内目录并打一次 warning（README「配置」有上手配置，Docker 语境见 `docker/README.md`） |
 | `VTS_USER_AGENT` | 自定义 yt-dlp User-Agent：非空时同时注入 `user_agent` 与请求头 `User-Agent`（两者都设才对 B 站 412 生效）；空 = yt-dlp 默认 UA，不改默认行为。见 `docker/README.md`「网络与风控」 |
 | `VTS_COOKIES_FILE` | 登录 cookies 文件（等价 CLI `--cookies`，显式文件优先于浏览器 cookies，两者互斥）；文件不存在时 WARN 并说明路径，不静默忽略 |
 | `HOST` / `PORT` | `scripts/web.sh` 的监听地址与端口（默认 `127.0.0.1:8080`；`--port` 参数优先） |

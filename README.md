@@ -1,93 +1,104 @@
-# VTS（Video-To-Summary）：视频总结 · 视频转文字 · 字幕提取 · Markdown 笔记
+# VTS — Video to Summary
+
+> 把视频链接（YouTube / B 站等任意 yt-dlp 支持的站点）或本地音频，变成结构化 Markdown 笔记。
+
+**字幕优先 · 本地自部署 · BYOK（自带 Key）· Markdown-first**
+
+![License](https://img.shields.io/badge/license-MIT-green)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+[![CI](https://github.com/soloworktop/vts/actions/workflows/oss-guard.yml/badge.svg)](https://github.com/soloworktop/vts/actions/workflows/oss-guard.yml)
+[![Release](https://img.shields.io/github/v/release/soloworktop/vts)](https://github.com/soloworktop/vts/releases)
 
 > English documentation: [`README.en.md`](README.en.md)
-
-![License](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![字幕优先](https://img.shields.io/badge/字幕优先-零转写成本-orange)
-<!-- 推送到 GitHub 后删除本行注释并启用 CI 徽章（workflow 已就绪：.github/workflows/oss-guard.yml）：
-[![CI](https://github.com/OWNER/REPO/actions/workflows/oss-guard.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/oss-guard.yml) -->
-
-**视频 URL → 结构化 Markdown 笔记。** 输入一条视频链接，自动取字幕/转写、调用你自己配置的
-LLM 生成结构化笔记，并落地为可编辑、可检索、可导出的 Markdown 文件。自带 Web 控制台与 CLI。
-
-**典型场景**：
-
-- **AI 视频总结**——YouTube、B 站（Bilibili）的长视频一键生成结构化笔记；
-- **视频转文字 / 字幕提取**——课程、演讲、访谈快速出逐字稿与 SRT 字幕；
-- **播客转文字**——本地音频文件直接转写，落成可检索的文本笔记；
-- **会议 / 课程知识库**——笔记自动带标签、全文可检索，攒成个人知识库。
-
-> **字幕优先。** 视频自带字幕（人工或平台自动）时，直接用字幕文本当转写稿——不下载音频、
-> 不调用转写接口；视频没有字幕时，才需要额外配置转写（ASR）。LLM 总结需要配置自己的 Key
-> （BYOK，任意 OpenAI 兼容端点）：未配置时跳过总结、仅产出转写原文，任务不算失败。
-
-- **本地自部署**：视频、笔记与数据库都留在你自己的机器上；
-- **BYOK（Bring Your Own Key）**：不绑定任何模型供应商，任意 **OpenAI 兼容**端点都可以——
-  OpenAI、DeepSeek、Moonshot、自建 vLLM/Ollama 网关……填 `base_url` / `api_key` / `model` 即可。
-- **Web 控制台**：任务列表、实时进度、产物在线编辑、标签、全文检索、模板管理。
-- **MIT 许可**：核心功能全部开源，无门控、无试用限制、无付费解锁。
-
-**目录**：[特性总览](#特性总览) · [快速开始](#快速开始) · [配置](#配置) · [数据与备份](#数据与备份) ·
-[进阶](#进阶) · [明确不做的事](#vts-明确不做的事) · [参考](#参考文档地图) · [开发](#开发) · [常见问题](#常见问题)
-
-```mermaid
-flowchart LR
-    A["视频链接"] --> B{"自带字幕？"}
-    B -- "有" --> C["直接取字幕文本<br/>（零 API 成本）"]
-    B -- "无" --> D["下载音频<br/>→ ASR 转写"]
-    C --> E["LLM 总结<br/>（BYOK 自备端点）"]
-    D --> E
-    E --> F["Markdown 笔记<br/>可编辑 · 可检索 · 可导出"]
-```
 
 ![VTS Web 控制台：视频总结任务列表与 Markdown 笔记详情](docs/assets/web-console.png)
 <p align="center"><sub>Web 控制台：任务状态、实时进度、产物在线编辑与全文检索（截图为示例数据）</sub></p>
 
 ---
 
-## 特性总览
+## 为什么是 VTS
 
-| 能力 | 收益 |
+VTS 面向想把长视频变成可复用的个人知识、又不想依赖第三方 SaaS 的人：
+
+- **字幕优先**：视频自带字幕（人工或平台自动）时，直接把字幕文本当转写稿——不下载
+  音频、不调用转写接口；
+- **本地优先**：VTS 不托管你的数据——任务、数据库与产物都由你自己的机器管理。使用
+  云端 ASR / LLM 时，相应音频或文本会发送到你配置的服务（见「[安全](#安全)」）；
+- **BYOK（Bring Your Own Key）**：不绑定模型供应商。LLM 总结走任意 **OpenAI 兼容**
+  接口——OpenAI、DeepSeek、Moonshot、自建 vLLM / Ollama 网关……；无字幕视频的转写
+  （ASR）走实现了 `/audio/transcriptions` 的兼容端点。两者都只需填 `base_url` /
+  `api_key` / `model`；
+- **Markdown-first**：产物是普通文件（Markdown / TXT / SRT），可编辑、可检索、可版本
+  化、可整体带走；
+- **开放与可迁移**：MIT 开源，Web 控制台与 CLI 双形态；数据与产物是不绑定任何特定
+  服务的标准文件，可随时导出、迁移。
+
+## 核心特性
+
+| 能力 | 说明 |
 |---|---|
-| 字幕优先 | 自带字幕的视频**零 API 成本**出稿，不下载音频、不调转写；`--subtitle-preference` 可改 `manual_only` / `off`，`--subtitle-language` 选语言（默认中文优先） |
-| 转写 | 只有视频没有字幕时才需要：填一个 OpenAI 兼容 Whisper 端点即可，不用装本地模型 |
-| LLM 总结 | 10 种内置模板一键换风格——通用 / 精简笔记 / 详细笔记 / 教程笔记 / 学术笔记 / 会议纪要 / 商业分析 / 小红书笔记 / 生活随笔 / 任务清单——也可以完全自定义 |
-| 任务管理 | 关掉页面、重启服务都不丢任务：实时进度、可取消、可重试（可换模板）、重启自动恢复、事件可回放 |
-| 历史检索 | 标签体系（重命名 / 合并 / 删除）+ SQLite FTS5 全文检索、命中高亮，几百条历史里秒搜到那句话；环境不支持 FTS5 时自动降级 LIKE，检索不中断 |
-| 产物 | 全部是标准文件、随时可拿走：`.summary.md` 可在线编辑（写回原子替换），`.txt` / `.srt` / `.segments.json` |
-| 导出与迁移 | 单任务导出 Markdown（真实附件）；全部历史一键打包 zip，换机器不丢数据 |
-| 诊断 | 一键导出脱敏诊断日志，Key / Bearer / cookie 自动伪名化，报障不泄密 |
-| 安全 | API Key Fernet 加密落库；产物路径防逃逸；可选 Bearer Token 鉴权；静态资源 no-cache |
+| 字幕优先 | 有字幕直接用字幕出稿，不下载音频、不调 ASR |
+| 视频转写 | 无字幕时经你配置的 OpenAI 兼容 Whisper API 转写，不装本地模型 |
+| AI 总结 | 10 种内置模板一键换风格（见「[命令行](#命令行)」），也可在 Web 中自定义模板 |
+| 任务管理 | 实时进度、可取消、可重试（可换模板）、重启自动恢复 |
+| 笔记管理 | 产物在线编辑、标签体系、全文检索与命中高亮 |
+| 导出与迁移 | 单任务导出 Markdown、全部历史打包 zip；产物为 `.summary.md` / `.txt` / `.srt` / `.segments.json` |
+| 本地部署 | 数据保存在自己的机器；Docker 一键起服务 |
+| 安全 | API Key 加密落库、产物路径防逃逸、可选 Bearer Token 鉴权、一键导出脱敏诊断日志 |
+
+## 工作原理
+
+```mermaid
+flowchart LR
+    A["视频 URL"] --> B{"自带字幕？"}
+    B -- "有" --> C["直接使用字幕文本<br/>不下载音频 · 不调 ASR"]
+    B -- "无" --> D["下载音频<br/>→ ASR 转写"]
+    L["本地音频文件"] --> D
+    C --> E{"配置了 LLM Key？"}
+    D --> E
+    E -- "有" --> F["结构化 Markdown 笔记"]
+    E -- "无" --> G["仅产出转写原文<br/>（任务仍成功）"]
+```
+
+- **字幕优先**：URL 视频自带字幕时直接使用字幕文本当转写稿，不下载音频、不调用 ASR
+  ——更快，也没有转写失真；
+- **没配 LLM Key 也不是失败**：跳过总结，仍产出转写原文（`.txt` / `.srt`）；之后补上
+  Key 点「重新生成」即可拿到完整笔记。
 
 ---
 
 ## 快速开始
 
-两条路线二选一；需要哪些配置取决于视频有没有字幕，见「[配置](#配置)」。
-
-### 方式 A：Docker（推荐——不需要本机装 Python / Node）
+### Docker（推荐）
 
 ```bash
-# 免克隆免构建：直接跑发布流水线推到 ghcr.io 的预构建镜像（amd64 / arm64）
 docker run -d --name vts -p 8080:8080 \
   -v vts_data:/data -v vts_output:/output \
   --restart unless-stopped \
   ghcr.io/soloworktop/vts:latest
 
-# 或已克隆仓库时，源码构建一键起服务
+# 已克隆仓库时，也可源码构建一键起服务：
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-打开 <http://127.0.0.1:8080> 即是控制台，健康检查在 `/api/v1/health`。数据存在
-`vts_data` / `vts_output` 两个卷里，删容器 / `down` 不丢。镜像标签（`latest` 或与
-Release 同版本的 `vX.Y.Z`）、环境变量配置、升级、B 站 412 风控等细节见 `docker/README.md`。
+打开 <http://127.0.0.1:8080> 即是控制台（健康检查在 `/api/v1/health`）。数据存在
+`vts_data` / `vts_output` 两个卷里，删容器、`down` 都不丢；镜像标签、端口冲突、升级
+与 B 站 412 风控见 [`docker/README.md`](docker/README.md)。
 
-### 方式 B：本地 venv
+**第一次任务（5 分钟）**：
 
-需要 **Python 3.10+**；ffmpeg 仅在视频无字幕、需要转写时用到：
+1. 「设置 → LLM 配置」填入你的 OpenAI 兼容端点与 Key（有字幕的视频只需这一步）；
+2. 「新建任务」粘贴视频链接，选一个总结模板（默认「通用」即可）；
+3. 点开始，实时查看进度；
+4. 完成后得到 Markdown 笔记，可在线编辑、打标签、全文检索。
 
-- macOS：`brew install ffmpeg`
-- Debian / Ubuntu：`sudo apt install ffmpeg`
-- Windows：`winget install Gyan.FFmpeg`（或从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载后加入 PATH）
+### 本地运行（venv）
+
+需要 **Python 3.10+**；ffmpeg 仅在「视频无字幕、需要转写」时用到
+（见[常见问题](#常见问题)）：
+
+- macOS：`brew install ffmpeg` · Debian / Ubuntu：`sudo apt install ffmpeg` ·
+  Windows：`winget install Gyan.FFmpeg`
 
 ```bash
 python3 -m venv .venv
@@ -96,56 +107,79 @@ pip install -e .
 bash scripts/web.sh                      # 打开 http://127.0.0.1:8080
 ```
 
-> 只想用 CLI、不做本地开发？可以不克隆仓库，直接装
+> 只想用 CLI、不做本地开发？直接安装
 > [Release](https://github.com/soloworktop/vts/releases) 里的发行包（尚未发布 PyPI）：
 > `pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl`。
-> Web 控制台建议走上面的 Docker 方式。
->
 > 原生 Windows 没有 bash：直接运行 `python -m video_to_summary.main`，或使用 WSL。
-> `scripts/fetch_ffmpeg.sh` 仅供 macOS 打包分发，日常装 ffmpeg 用上面的包管理器即可。
 
-### 命令行用法
+---
 
-`vts` 是安装后自带的命令，等价于 `python -m video_to_summary.main`；完整参数见 `vts --help`：
+## 输出是什么
 
-```bash
-vts "<视频链接>"
-# 最简用法。视频有字幕时无需转写配置即可跑通；LLM 总结需配 LLM Key（见「配置」），未配时仅产出转写原文。
+VTS 的产物全部是标准文件，可编辑、可检索、可版本化、可整体迁移。Web / Docker 形态下
+每个任务一个子目录（`VIDEO_TO_SUMMARY_OUTPUT_DIR` 可改基目录）：
 
-vts "<视频链接>" --summary-template 学术笔记
-# 可选：换总结模板。可选值见 vts --help（通用 / 学术笔记 / 会议纪要 等）。
-
-vts "<视频链接>" --summary-key sk-xxx --summary-base-url https://api.deepseek.com/v1 --summary-model deepseek-chat
-# 可选：接入自己的 LLM 生成总结。参数较长时可写进 .env（见下节），之后仍然只跑第一条。
-
-bash scripts/run.sh "<视频链接>"
-# 嫌手动建环境麻烦：这条会自动建 venv + 装依赖再调用（参数同上）。
+```text
+output/
+└── <任务ID>/
+    ├── <内容ID>.summary.md     # 结构化 Markdown 笔记（必有，可在线编辑）
+    ├── <内容ID>.txt            # 转写原文（必有）
+    ├── <内容ID>.srt            # SRT 字幕（字幕 / 转写含时间轴时生成）
+    ├── <内容ID>.segments.json  # 分段数据（含时间轴时生成）
+    └── <内容ID>.polished.txt   # 润色稿（启用文本润色时生成）
 ```
 
-跑通的标志是终端最后一行输出 `summary -> output/<任务ID>/xxx.summary.md`；产物都在
-`output/` 目录：总结 `.summary.md`、转写原文 `.txt`、字幕 `.srt`。
+文件名前缀 `<内容ID>`：URL 源是视频 ID，本地文件是原文件名。CLI 形态没有任务子目录，
+文件直接写在 `output/`（`--output-dir` 可改）。
 
-服务自带一份内置使用手册：<http://127.0.0.1:8080/guide>；更多脚本化用法示例见 `examples/`
-（基础调用 / 本地音频 / 自定义后端 / 技能集成）。
+`.summary.md` 的固定结构如下。**注意：以下为结构示例**——标题、来源与正文均为占位
+演示，不是真实运行结果；正文按「通用」模板的典型组织方式排布（先核心结论，再按主题
+分节，保留关键数字与可执行建议）：
+
+```markdown
+# 视频标题
+
+- **来源**：<视频链接>
+- **时长**：38分钟
+
+## 摘要
+
+<LLM 生成的总结正文：先一句话核心结论，再按主题分节展开>
+
+## 关键观点
+
+### 1. <观点一>
+
+<支撑论据与关键数据>
+
+### 2. <观点二>
+
+<支撑论据与关键数据>
+
+## 可执行建议
+
+- <建议一>
+- <建议二>
+```
 
 ---
 
 ## 配置
 
-按视频情况与需求，需要的配置不同：
+按视频情况与需求渐进配置，需要什么配什么：
 
-| 视频 | 配置 | 结果 |
+| 视频 | 需要配置 | 结果 |
 |---|---|---|
 | 有字幕 | LLM Key | 完整笔记（转写稿 + 总结） |
-| 有字幕 | 无 | 仅转写原文（`.txt` / `.srt`），跳过总结 |
+| 有字幕 | 无 | 仅转写原文（`.txt` / `.srt`），任务成功 |
 | 无字幕 | ASR 转写配置 + LLM Key | 完整笔记 |
 | 无字幕 | 无 ASR 配置 | 任务以引导配置的报错结束 |
 
-### 配置 LLM（生成总结必需）
+### 最小配置：LLM Key（有字幕视频只需这一步）
 
-把配置写进 `.env`（可从 `.env.example` 复制）。VTS 从**运行命令时所在目录**向上查找
-`.env`，放在你平时执行 `vts` 的目录（或其上层，如家目录）即可，不必在仓库根。变量按
-槽位命名，推理槽是 `SUMMARY_*` 三元组（旧名 `LLM_*` / `OPENAI_API_KEY` 仍被识别）：
+把配置写进 `.env`（可从 [`.env.example`](.env.example) 复制）。VTS 从**运行命令时所在
+目录**向上查找 `.env`，放在你平时执行 `vts` 的目录（或其上层，如家目录）即可。推理槽
+是 `SUMMARY_*` 三元组（旧名 `LLM_*` / `OPENAI_API_KEY` 仍被识别）：
 
 ```ini
 SUMMARY_API_KEY=sk-xxx
@@ -153,8 +187,8 @@ SUMMARY_BASE_URL=https://api.deepseek.com/v1
 SUMMARY_MODEL=deepseek-chat
 ```
 
-也可以走 HTTP 接口配置（Key 加密落库，接口只回掩码值）。LLM 配置只有两个槽位：
-**推理模型**与**语音识别模型**（视频无字幕时转写音频，即下文的 ASR）：
+Web 控制台也可视化配置（「设置 → LLM 配置」），或走 HTTP 接口——Key 加密落库，接口
+只回掩码值：
 
 ```bash
 curl -X PUT localhost:8080/api/v1/llm -H 'Content-Type: application/json' \
@@ -162,100 +196,117 @@ curl -X PUT localhost:8080/api/v1/llm -H 'Content-Type: application/json' \
        "asr":{"base_url":"https://api.openai.com/v1","api_key":"sk-xxx","model":"whisper-1"}}'
 ```
 
-> **没配 Key 任务也不会失败**：仍产出转写原文（`.txt` / `.srt`），补上 Key 后点
-> 「重新生成」即可拿到完整笔记。
+> **没配 Key 任务也不会失败**：仍产出转写原文，补上 Key 后点「重新生成」即可拿到
+> 完整笔记。
 
-### 配置 ASR（转写，仅视频无字幕时需要）
+### 无字幕视频：加配 ASR
 
-任何实现了 `/audio/transcriptions` 的 OpenAI 兼容端点都可以做转写。转写槽位同样是
-三元组：`ASR_API_KEY` / `ASR_BASE_URL` / `ASR_MODEL`。
-
-**用 OpenAI 官方**（最简单）：把你的 Key 写进 `.env` 就完成了：
+任何实现了 `/audio/transcriptions` 的 OpenAI 兼容端点都可以做转写，转写槽同样是
+三元组：
 
 ```ini
-ASR_API_KEY=sk-xxx
-```
-
-**用第三方 / 自建端点**：在上面基础上补两行，指向你的端点；Key 仍写在 `ASR_API_KEY`，
-填该端点发给你的 Key：
-
-```ini
-ASR_BASE_URL=https://your-gateway/v1   # 你的转写端点地址
+ASR_API_KEY=sk-xxx                     # 用 OpenAI 官方转写时有这一行就够
+ASR_BASE_URL=https://your-gateway/v1   # 第三方 / 自建端点时补这两行
 ASR_MODEL=whisper-1                    # 该端点要求的模型名，未设置时默认 whisper-1
 ```
 
-**不想改 `.env`**：这些都有对应的命令行参数，跑的时候直接带上即可：
-
-```bash
-vts "<视频链接>" --asr-key sk-xxx
-vts "<视频链接>" --asr-key sk-xxx --asr-base-url https://your-gateway/v1 --asr-model whisper-1
-```
+CLI 等价参数：`vts "<视频链接>" --asr-key sk-xxx [--asr-base-url … --asr-model …]`。
 
 ### 需要登录的内容
 
-B 站 AI/CC 字幕、YouTube 自动字幕与会员内容通常需要登录态。本版不内置站点登录集成，
-两种提供方式：
+B 站 AI/CC 字幕、YouTube 自动字幕与会员内容通常需要登录态。VTS 不内置站点登录集成，
+两种提供方式（互斥，显式 cookies 文件优先）：
 
 1. **cookies 文件**：CLI `--cookies cookies.txt` 或环境变量 `VTS_COOKIES_FILE`。
-   cookies.txt 是 Netscape 格式，可用浏览器扩展（如「Get cookies.txt LOCALLY」）在已登录的
-   浏览器里导出；也可以不导出文件、让 yt-dlp 直接读浏览器登录态：
-   `yt-dlp --cookies-from-browser chrome "<链接>"`；
-2. **浏览器 cookies**：Web「设置 → 网络与访问」选择「浏览器 cookies」，直接读取本机浏览器
-   的登录态。Chrome 系首次读取会弹 macOS 钥匙串授权；Docker 内不可用，请用方式 1。
+   cookies.txt 是 Netscape 格式，可用浏览器扩展（如「Get cookies.txt LOCALLY」）在
+   已登录的浏览器里导出；
+2. **浏览器 cookies**：Web「设置 → 网络与访问」选择「浏览器 cookies」，直接读取本机
+   浏览器的登录态。Chrome 系首次读取会弹 macOS 钥匙串授权；Docker 内不可用，请用
+   方式 1。
 
-两者互斥，显式 cookies 文件优先。
+### 全部配置项
+
+环境变量全量语义（含兼容别名）、数据位置判据、版本注入见
+[`docs/configuration.md`](docs/configuration.md)；Docker 部署语境（卷、端口、镜像源）
+见 [`docker/README.md`](docker/README.md)。
+
+---
+
+## 命令行
+
+`vts` 是安装后自带的命令，等价于 `python -m video_to_summary.main`：
+
+```bash
+vts "<视频链接>"
+# 最简用法。有字幕时无需转写配置即可跑通；未配 LLM Key 时仅产出转写原文。
+
+vts "<视频链接>" --summary-template 学术笔记
+# 换总结模板。
+
+vts "<视频链接>" --summary-key sk-xxx --summary-base-url https://api.deepseek.com/v1 --summary-model deepseek-chat
+# 临时接入自己的 LLM；长期使用建议写进 .env（见「配置」）。
+
+bash scripts/run.sh "<视频链接>"
+# 免手动建环境：自动建 venv + 装依赖再调用，参数同上。
+```
+
+内置 10 种总结模板（CLI 只接受内置名，Web 中还可自定义）：`通用`（默认）/
+`精简笔记` / `详细笔记` / `教程笔记` / `学术笔记` / `会议纪要` / `商业分析` /
+`小红书笔记` / `生活随笔` / `任务清单`。
+
+跑通的标志是终端最后一行输出 `summary -> output/<内容ID>.summary.md`。全部参数见
+[`docs/cli.md`](docs/cli.md) 与 `vts --help`；脚本化调用示例见
+[`examples/`](examples/)。
 
 ---
 
 ## 数据与备份
 
-SQLite 数据库 `app.db`（任务历史、标签、模板、加密后的 LLM Key）的默认位置：
+SQLite 数据库 `app.db`（任务历史、标签、模板、加密后的 Key）默认位置：
 
 - **源码检出 / editable 安装**（`pip install -e .`）：`<检出根>/data/app.db`
 - **安装为包**（非 editable）：平台用户数据目录——macOS
-  `~/Library/Application Support/VTS/app.db`、Windows `%LOCALAPPDATA%\VTS\app.db`、
-  Linux 等 `$XDG_DATA_HOME/vts/app.db`（未设置 `XDG_DATA_HOME` 时为 `~/.local/share/vts/app.db`）
+  `~/Library/Application Support/VTS/`、Windows `%LOCALAPPDATA%\VTS\`、Linux 等
+  `$XDG_DATA_HOME/vts/`
 
-任意形态都可用 `VIDEO_TO_SUMMARY_DB` 覆盖（Docker 已默认 `/data/app.db`）；目录不存在时
-自动创建，创建失败会报错提示设置该变量。解析出的数据库路径见启动日志
-`sqlite database ready at ...` 一行；运行形态的判定细节见 `docs/configuration.md`。
+任意形态都可用 `VIDEO_TO_SUMMARY_DB` 覆盖（Docker 已默认 `/data/app.db`）。
 
-**备份 / 迁移**：停服务后拷走 `app.db`（连同同目录的 `enc_key` 密钥文件）与整个 `output/`
-产物目录，放到新环境同位置即可；Docker 形态对应 `vts_data` / `vts_output` 两个卷，
-导出方法见 `docker/README.md`「数据持久化」。
+**备份 / 迁移**：停服务后拷走 `app.db`（连同同目录的 `enc_key` 密钥文件）与整个
+`output/` 产物目录，放到新环境同位置即可；Docker 形态对应 `vts_data` / `vts_output`
+两个卷，导出方法见 `docker/README.md`「数据持久化」。路径判定的完整规则见
+[`docs/configuration.md`](docs/configuration.md)。
 
 ---
 
-## 进阶
+## 文档地图
 
-### 自定义前端（`VTS_STATIC_DIR`）
+| 我想… | 看这里 |
+|---|---|
+| 快速上手 | 本页「[快速开始](#快速开始)」 |
+| 日常使用（图文手册） | 服务自带：<http://127.0.0.1:8080/guide> |
+| 用 Docker 部署 / 升级 / 解决 B 站 412 | [`docker/README.md`](docker/README.md) |
+| 配置 LLM / ASR / 查全部环境变量 | [`docs/configuration.md`](docs/configuration.md) / [`.env.example`](.env.example) |
+| 调 HTTP API | [`docs/api.md`](docs/api.md)（canonical 前缀 `/api/v1`，含 `VIDEO_TO_SUMMARY_TOKEN` 鉴权） |
+| 查 CLI 全部参数 | [`docs/cli.md`](docs/cli.md) / `vts --help` |
+| 写插件、做能力扩展 | [`docs/plugins.md`](docs/plugins.md)（能力经 `GET /api/v1/capabilities` 对外暴露） |
+| 加固部署 / 报告漏洞 | [`SECURITY.md`](SECURITY.md) |
+| 参与贡献 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 了解仓库约定（贡献者 / Agent） | [`AGENTS.md`](AGENTS.md) |
 
-默认服务包内构建好的前端（来自 `web-src/` 的构建产物）。想换成自己构建的前端产物——例如
-自定界面，或前后端合并部署到同一服务进程——把环境变量 `VTS_STATIC_DIR` 指向一个**包含
-`index.html` 的目录**：
+---
 
-```bash
-VTS_STATIC_DIR=/path/to/my-frontend bash scripts/web.sh
-# Docker：写进 compose 的 environment，并把宿主目录挂载进容器
-```
+## 安全
 
-生效时首页 `/` 与 `/static/*` 改由该目录提供，缓存语义不变，请放入完整构建产物
-（`index.html` + `assets/` 等）。未设置或无效（目录不存在 / 缺 `index.html`）时自动回落
-包内目录并在日志打一条 warning——配错路径不会白屏。`/api/v1` 接口、`/guide` 使用手册与
-健康检查不受影响。
+VTS 为**个人自部署**设计，默认只监听本机。要把服务暴露到局域网 / 公网，**必须**先
+设置 `VIDEO_TO_SUMMARY_TOKEN` 启用 Bearer 鉴权（详见
+[`docs/api.md`](docs/api.md)）。
 
-### 插件与扩展
-
-核心只定义挂载点（`RouteProvider` / `JobSideEffect` / `SettingsProvider`），第三方插件经
-标准 entry point 挂载，核心代码不引用任何具体插件包名。能力经 `GET /api/v1/capabilities`
-对外暴露；本构建不含任何插件，响应为 `{}`。entry point 写法、能力声明与 fail-closed
-判据见 `docs/plugins.md`。
-
-### 版本号注入（外部构建友好）
-
-设置环境变量 `VIDEO_TO_SUMMARY_VERSION`（非空即生效）即可让外部构建注入自己的版本号，
-展示于 `/api/v1/health` 的 `version` 与 CLI `--version`。解析顺序与实现细节见
-`docs/configuration.md`。
+- VTS 本身不提供云端存储：任务、数据库与产物都在你自己的机器上；但使用第三方
+  ASR / LLM API 时，相应的音频或文本会发送给你配置的服务商，具体取决于你的配置与
+  对方的数据政策；
+- API Key 经 Fernet 加密落库，接口只回掩码值，不会明文返回；
+- cookies 等同账号凭据：注意保管，不要提交进仓库、不要写进会外发的文件；
+- 漏洞报告渠道与自部署加固要点见 [`SECURITY.md`](SECURITY.md)。
 
 ---
 
@@ -264,30 +315,13 @@ VTS_STATIC_DIR=/path/to/my-frontend bash scripts/web.sh
 VTS 刻意保持单用户、BYOK 形态，以下能力不在核心范围内：
 
 - **不内置本地转写**——转写只走你配置的 OpenAI 兼容 Whisper API，不下载本地模型；
-- **不内置站点登录集成**——需要登录态的内容用 cookies 自行提供（见上文「配置」）；
+- **不内置站点登录集成**——需要登录态的内容用 cookies 自行提供（见「配置」）；
 - **无 PDF 导出**——产物导出为 Markdown；历史整体导出 / 导入为 zip；
 - **单用户**——无账号体系、无多租户、无用量看板；
-- **无门控**——无试用限制、无水印、无付费解锁。
+- **产物不加水印**——输出即原始标准文件，不注入任何水印。
 
-其中部分（如 PDF 导出）可经插件挂载点扩展；本地转写引擎替换暂无对应挂载点。完整的
-范围取舍依据见 `CONTRIBUTING.md`「范围宣言」。
-
----
-
-## 参考（文档地图）
-
-canonical API 前缀为 **`/api/v1`**。不同深度的内容按需进入：
-
-| 文档 | 内容 |
-|---|---|
-| [服务内使用手册](http://127.0.0.1:8080/guide) | 面向日常使用的图文手册（随服务自带） |
-| [`docs/api.md`](docs/api.md) | HTTP API 全表（35 个端点）与 `VIDEO_TO_SUMMARY_TOKEN` 鉴权——暴露局域网 / 公网前**必须**配置 |
-| [`docs/configuration.md`](docs/configuration.md) | 环境变量全量语义（含兼容别名）、数据位置判据、版本号注入 |
-| [`docs/plugins.md`](docs/plugins.md) | 插件挂载点、entry point 写法与能力声明 |
-| [`docker/README.md`](docker/README.md) | Docker 部署、配置、升级与网络风控（B 站 412） |
-| [`.env.example`](.env.example) | 全部环境变量的带注释示例 |
-| [`SECURITY.md`](SECURITY.md) | 安全漏洞报告渠道与自部署安全要点 |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`AGENTS.md`](AGENTS.md) | 贡献流程与范围宣言 / 仓库约定 |
+其中部分（如 PDF 导出）可经插件挂载点扩展。完整的范围取舍依据见
+`CONTRIBUTING.md`「范围宣言」。
 
 ---
 
@@ -312,15 +346,16 @@ bash scripts/e2e.sh live               # 真实边界端到端（真实下载/�
 
 ### B 站视频报 412 / 取不到字幕怎么办？
 
-**412** 是 B 站边缘 WAF（站点防火墙）按「UA × IP 信誉」对视频页发起的挑战：yt-dlp 默认
-（浏览器式）UA 会被拦截，换成非浏览器 UA 即恢复。**取不到字幕**通常是 CC/AI 字幕需要
-登录态，而 Web/Docker 形态没有本机浏览器。解法任选其一：
+**412** 通常与 B 站对视频页请求的风控有关：yt-dlp 默认的（浏览器式）UA 更容易被拦，
+自定义非浏览器 UA 在常见场景下可恢复，但不保证对所有网络环境都有效。**取不到字幕**
+通常是 CC/AI 字幕需要登录态，而 Web/Docker 形态没有本机浏览器。可以依次尝试：
 
 1. 自定义 UA：环境变量 `VTS_USER_AGENT=Wget/1.21.3`（CLI / Web / Docker 均生效；空 = 默认行为不变）；
 2. 登录 cookies：环境变量 `VTS_COOKIES_FILE` 指向 cookies.txt（等价 CLI `--cookies`，同时解锁 B 站 CC/AI 字幕）；
 3. 代理：Web「设置 → 网络与访问」填代理，或 CLI `--proxy`。
 
-完整原理与 Docker compose 示例见 `docker/README.md`「网络与风控（B 站 412 等）」。
+以上方式的效果因网络环境与站点风控策略而异；完整背景与 Docker compose 示例见
+`docker/README.md`「网络与风控（B 站 412 等）」。
 
 ### 提示需要 ffmpeg / ffprobe，必须装吗？
 
@@ -337,7 +372,7 @@ Debian / Ubuntu `sudo apt install ffmpeg`、Windows `winget install Gyan.FFmpeg`
 
 停服务后拷走 `app.db`（连同同目录的 `enc_key`）与整个 `output/` 即可；Docker 对应
 `vts_data` / `vts_output` 两个卷，`down` 不带 `-v` 不删卷。也可用 `VIDEO_TO_SUMMARY_DB`
-把库指到新路径。详见上文「数据与备份」。
+把库指到新路径。详见上文「[数据与备份](#数据与备份)」。
 
 ### 如何升级 / 卸载？
 
@@ -352,9 +387,9 @@ Debian / Ubuntu `sudo apt install ffmpeg`、Windows `winget install Gyan.FFmpeg`
 
 发行名与项目名是 **VTS**，Python import 包名保持 **`video_to_summary`**
 （`from video_to_summary import Settings, run`）。沿用历史包名是为了不打断所有既有用法与
-下游依赖，重命名收益不抵成本。安装时用发行名 `pip install vts`——尚未发布到 PyPI，
-发布后可用；当前可直接装 [Release](https://github.com/soloworktop/vts/releases) 附件里的
-wheel，源码开发仍用 `pip install -e .`。
+下游依赖，重命名收益不抵成本。当前的安装方式：源码开发用 `pip install -e .`，或直接装
+[Release](https://github.com/soloworktop/vts/releases) 附件里的 wheel；PyPI 安装
+（`pip install vts`）要等未来正式发布后才可用。
 
 ---
 
