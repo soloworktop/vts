@@ -66,8 +66,8 @@ e2e = [
 vts = "video_to_summary.main:main"
 
 [project.urls]
-Homepage = "https://github.com/vts-project/vts"
-Issues = "https://github.com/vts-project/vts/issues"
+Homepage = "https://github.com/soloworktop/vts"
+Issues = "https://github.com/soloworktop/vts/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
