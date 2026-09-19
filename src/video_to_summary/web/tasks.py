@@ -156,6 +156,41 @@ def _job_title(payload: dict) -> str:
     return ""
 
 
+# transition_job 允许一并更新的列白名单（状态转换与所属字段必须同一次落库）。
+# title 也在列：运行期真实标题回写（download_done / 产物 H1 兜底）随终态转换一并持久化
+_TRANSITION_FIELDS = frozenset({
+    "error", "progress", "result_paths", "payload", "retry_count", "retried_at", "summary_edited_at", "title",
+})
+
+
+def transition_job(job_id: str, expected_status: str, new_status: str, *, fields: dict | None = None) -> bool:
+    """原子状态转换：``UPDATE jobs SET status = new WHERE job_id = ? AND status = expected``。
+
+    Job 状态修改的经典竞态是「读 status → Python 判断 → 盲写 save()」：两次读之间
+    状态已被另一方（cancel API / 运行线程 / retry API）推进，盲写会把对方刚写入的
+    状态覆盖回去（completed 被打回 running、重试中的任务被写回 cancelled 等）。
+    本函数把判断与写入合并进一条 UPDATE，按 affected rows 判定胜负：返回 False =
+    DB 当前状态不是 expected（竞争失败），调用方必须放弃本次写入并重读状态。
+
+    fields 可携带与状态一并更新的列（白名单见 _TRANSITION_FIELDS，如终态事件链）；
+    获胜后由调用方同步内存对象。不改变单进程正常路径的行为——单线程下 expected
+    恒等于 DB 当前状态，转换恒成功。
+    """
+    assignments: dict[str, Any] = {"status": new_status, "updated_at": time.time()}
+    for key, value in (fields or {}).items():
+        if key not in _TRANSITION_FIELDS:
+            raise ValueError(f"transition_job: unsupported field {key!r}")
+        assignments[key] = value
+    set_clause = ", ".join(f"{name} = ?" for name in assignments)
+    db.init_db()
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE jobs SET {set_clause} WHERE job_id = ? AND status = ?",
+            (*assignments.values(), job_id, expected_status),
+        )
+        return cur.rowcount > 0
+
+
 def output_base() -> str:
     """任务输出根目录：默认相对 cwd 的 ``output/``；桌面版通过
     ``VIDEO_TO_SUMMARY_OUTPUT_DIR`` 指向平台用户数据目录。"""
@@ -254,42 +289,115 @@ class Job:
         # 总结被用户编辑过的时间（NULL=未编辑）；编辑覆盖写回 summary 产物文件
         self.summary_edited_at: float | None = None
 
-    def mark_running(self) -> None:
-        self.status = JobStatus.RUNNING
-        self.save()
+    def mark_running(self) -> bool:
+        """pending → running 原子转换；返回 False = DB 状态已非 pending。
+
+        任务在信号量排队期间可能已被 cancel（pending → cancelled）推进状态；
+        转换失败的输家必须放弃执行，绝不能把已取消任务覆盖回 running。
+        """
+        if transition_job(self.job_id, JobStatus.PENDING, JobStatus.RUNNING):
+            self.status = JobStatus.RUNNING
+            return True
+        return False
 
     def mark_completed(self, result_paths: dict[str, str], elapsed: float | None = None) -> None:
-        """任务完成终态：状态与终态事件**同一次落库**原子持久化。
+        """任务完成终态：running → completed 原子转换，状态与终态事件**同一次落库**。
 
-        elapsed 可选（旧调用点不传时仍只推 FINALIZED，行为不变）；run_job 传入
-        elapsed 后 FINALIZED → COMPLETED 依次 push、再一次性 save——消除旧实现
-        「先落库 status=completed、后补 COMPLETED 事件二次落库」之间可被轮询
-        读到的窗口（状态已终态但事件链缺 completed）。
+        elapsed 可选（旧调用点不传时仍只推 FINALIZED，行为不变）。
+        转换意外失败时回退盲写 save()：完成产物已在磁盘，绝不因状态竞争丢失
+        completed 终态（单进程下 expected 恒成立，此分支仅剩理论价值）。
         """
+        events_payloads = [(JobEvent.FINALIZED, {"result_paths": result_paths})]
+        if elapsed is not None:
+            events_payloads.append((JobEvent.COMPLETED, {"elapsed": elapsed}))
+        events = self.progress.to_list() + [
+            {"event": event, "payload": payload or {}} for event, payload in events_payloads
+        ]
+        ok = transition_job(
+            self.job_id,
+            self.status,
+            JobStatus.COMPLETED,
+            fields={
+                "result_paths": json.dumps(result_paths, ensure_ascii=False),
+                "progress": json.dumps(events, ensure_ascii=False),
+                "title": self.title,
+            },
+        )
+        if not ok:
+            logger.warning(
+                "job %s completed transition lost race (db status != %s), falling back to save",
+                self.job_id, self.status,
+            )
         self.status = JobStatus.COMPLETED
         self.result_paths = result_paths
-        self.progress.push(JobEvent.FINALIZED, {"result_paths": result_paths})
-        if elapsed is not None:
-            self.progress.push(JobEvent.COMPLETED, {"elapsed": elapsed})
-        self.save()
+        for event, payload in events_payloads:
+            self.progress.push(event, payload)
+        if not ok:
+            self.save()
         # 全文检索索引（v8）：产物派生文本入 jobs_fts（先删后插，重试重跑安全）。
         # best-effort：索引失败只记日志，绝不影响任务完成链路
         from .fts_index import index_job_artifacts
 
         index_job_artifacts(self.job_id, result_paths)
 
-    def mark_cancelled(self, reason: str) -> None:
-        """用户手动停止的终态：与 failed 区分，前端展示「已停止」而非「失败」。"""
-        self.status = JobStatus.CANCELLED
-        self.error = reason
-        self.progress.push(JobEvent.CANCELLED, {"reason": reason})
-        self.save()
+    def mark_cancelled(self, reason: str, *, expected_status: str | None = None) -> bool:
+        """用户手动停止的终态（原子转换）；返回 False = 状态竞争失败，本次写入被放弃。
 
-    def mark_failed(self, error: str) -> None:
-        self.status = JobStatus.FAILED
-        self.error = error
-        self.progress.push(JobEvent.ERROR, {"error": error})
-        self.save()
+        expected_status 缺省用内存当前状态：worker 阶段边界收尾（running → cancelled）、
+        cancel API 终止排队任务（pending → cancelled）与测试直接调用均可用。
+        竞争失败（如 retry 已把该任务转回 pending）时绝不盲写——否则会把刚重试的
+        任务打回 cancelled，产生「列表显示已停止、后台却在跑」的错位。
+        """
+        expected = expected_status if expected_status is not None else self.status
+        events = self.progress.to_list() + [
+            {"event": JobEvent.CANCELLED, "payload": {"reason": reason}}
+        ]
+        ok = transition_job(
+            self.job_id,
+            expected,
+            JobStatus.CANCELLED,
+            fields={
+                "error": reason,
+                "progress": json.dumps(events, ensure_ascii=False),
+                "title": self.title,
+            },
+        )
+        if ok:
+            self.status = JobStatus.CANCELLED
+            self.error = reason
+            self.progress.push(JobEvent.CANCELLED, {"reason": reason})
+        else:
+            logger.warning(
+                "job %s cancelled transition lost race (db status != %s); write skipped",
+                self.job_id, expected,
+            )
+        return ok
+
+    def mark_failed(self, error: str) -> bool:
+        """失败终态（running → failed 原子转换）；竞争失败时放弃写入（见 mark_cancelled）。"""
+        events = self.progress.to_list() + [
+            {"event": JobEvent.ERROR, "payload": {"error": error}}
+        ]
+        ok = transition_job(
+            self.job_id,
+            self.status,
+            JobStatus.FAILED,
+            fields={
+                "error": error,
+                "progress": json.dumps(events, ensure_ascii=False),
+                "title": self.title,
+            },
+        )
+        if ok:
+            self.status = JobStatus.FAILED
+            self.error = error
+            self.progress.push(JobEvent.ERROR, {"error": error})
+        else:
+            logger.warning(
+                "job %s failed transition lost race (db status != %s); write skipped",
+                self.job_id, self.status,
+            )
+        return ok
 
     def save(self) -> None:
         """把当前状态落库到 jobs 表（Upsert）。"""
@@ -379,11 +487,16 @@ def _acquire_semaphore() -> threading.BoundedSemaphore:
     return _job_semaphore
 
 
-def get_job(job_id: str) -> Job | None:
-    # 运行中的任务优先返回内存实时对象（含实时进度），否则从 DB 恢复
-    live = _jobs.get(job_id)
-    if live is not None:
-        return live
+def get_job(job_id: str, *, refresh: bool = False) -> Job | None:
+    """取任务：运行中的任务优先返回内存实时对象（含实时进度），否则从 DB 恢复。
+
+    ``refresh=True`` 绕过内存缓存直读 DB——状态竞争处理（cancel/retry 的竞态分支）
+    需要权威状态，内存对象可能已被其它执行方推进而本线程尚未感知。
+    """
+    if not refresh:
+        live = _jobs.get(job_id)
+        if live is not None:
+            return live
     db.init_db()
     with db.get_conn() as conn:
         row = conn.execute(
@@ -591,6 +704,11 @@ async def _run_job_task(job_id: str) -> None:
     await loop.run_in_executor(_get_job_executor(), run_job, job)
 
 
+def _has_cancel_requested(job: Job) -> bool:
+    """任务事件链里是否已有 CANCEL_REQUESTED（取消意图落库的标记）。"""
+    return any(e.get("event") == JobEvent.CANCEL_REQUESTED for e in job.progress.to_list())
+
+
 def resume_pending_jobs() -> None:
     """Web 启动时把 DB 中未完成的任务重新入队执行（进程重启后恢复连续性）。
 
@@ -625,6 +743,12 @@ def resume_pending_jobs() -> None:
             break
         for row in rows:
             job = Job.from_db(row)
+            if job.status == JobStatus.RUNNING and _has_cancel_requested(job):
+                # 取消意图已落库后进程才重启：resume 不得把已请求停止的任务再跑一遍，
+                # 直接落 cancelled 终态（不重新入队）
+                job.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
+                logger.info("job %s cancel was requested before restart, marked cancelled instead of resuming", job.job_id)
+                continue
             job.status = JobStatus.PENDING
             job.save()
             _jobs[job.job_id] = job
@@ -691,6 +815,13 @@ def cancel_job(job_id: str) -> bool:
     运行中的任务无法强制中断阻塞调用（下载/转写），因此先记录停止请求并立即反馈给
     前端（CANCEL_REQUESTED 事件），实际在 pipeline 下一个阶段边界抛 JobCancelledError。
 
+    状态判定全部走原子转换（transition_job）：
+    - pending → cancelled 直接落终态；转换失败说明任务恰被调度（pending → running
+      已被 worker 赢得），重读后按 running 处理，绝不把运行中任务盲写成 cancelled；
+    - running → running 的条件更新是「仍在运行」的原子判定：任务恰已终态时
+      affected rows = 0，取消请求作废，绝不把 completed/failed 盲写回 running
+      （否则重启后 resume 会把已完成的任务再跑一遍）。
+
     返回 True 表示已受理（pending 已终止 / running 已设停止标志）；
     返回 False 表示任务不存在或已处于终态（completed/failed/cancelled），调用方应据此
     给出正确反馈，避免误以为停止请求已生效。
@@ -700,12 +831,32 @@ def cancel_job(job_id: str) -> bool:
         return False
     if job.status == JobStatus.PENDING:
         # 终态事件由 mark_cancelled 统一推送（CANCELLED），此处不重复 push
-        job.mark_cancelled("cancelled by user")
-        _jobs.pop(job_id, None)
-        return True
+        if job.mark_cancelled("cancelled by user", expected_status=JobStatus.PENDING):
+            _jobs.pop(job_id, None)
+            return True
+        # 排队任务恰被调度（pending → running 已被 worker 原子认领）：重读 DB 权威
+        # 状态再分支，绝不把运行中任务盲写成 cancelled
+        job = get_job(job_id, refresh=True)
+        if job is None:
+            return False
     if job.status == JobStatus.RUNNING:
+        events = job.progress.to_list() + [
+            {"event": JobEvent.CANCEL_REQUESTED, "payload": {"reason": "stop requested"}}
+        ]
+        if not transition_job(
+            job_id,
+            JobStatus.RUNNING,
+            JobStatus.RUNNING,
+            fields={"progress": json.dumps(events, ensure_ascii=False)},
+        ):
+            logger.info("job %s no longer running, cancel request dropped", job_id)
+            return False
+        # 取消意图落库：进程重启后 resume 不得把已请求停止的任务再跑一遍
         job.progress.push(JobEvent.CANCEL_REQUESTED, {"reason": "stop requested"})
-        job.save()  # 取消意图落库：进程重启后 resume 不得把已请求停止的任务再跑一遍
+        # 竞态分支下 job 可能是 DB 重建对象：worker 手里的实时对象同样补上事件
+        live = _jobs.get(job_id)
+        if live is not None and live is not job:
+            live.progress.push(JobEvent.CANCEL_REQUESTED, {"reason": "stop requested"})
         _cancel_flags.add(job_id)
         logger.info("job %s stop requested", job_id)
         return True
@@ -727,8 +878,12 @@ def retry_job(job_id: str, summary_template: str | None = None) -> Job:
     job = get_job(job_id)
     if job is None:
         raise KeyError(f"job not found: {job_id}")
-    if job.status not in (JobStatus.FAILED, JobStatus.COMPLETED, JobStatus.CANCELLED):
-        raise ValueError(f"job {job_id} is not retryable (status={job.status})")
+    # 状态快照：转换的 expected 必须取读取时点的值。job 是可变共享对象（worker /
+    # 并发 API 都可能推进它），转换时刻再读 self.status 会把别人刚同步的 pending
+    # 当成 expected，造成 pending→pending 的伪获胜（双重入队）。
+    expected_status = job.status
+    if expected_status not in (JobStatus.FAILED, JobStatus.COMPLETED, JobStatus.CANCELLED):
+        raise ValueError(f"job {job_id} is not retryable (status={expected_status})")
 
     # 用当前全局默认配置重建 payload，只保留原始源信息与单任务总结模板
     from .settings_store import job_defaults_payload
@@ -748,7 +903,29 @@ def retry_job(job_id: str, summary_template: str | None = None) -> Job:
         fresh_payload["summary_template"] = summary_template
     job.payload = fresh_payload
 
-    # 清空输出目录，确保 pipeline 不命中旧缓存、从头执行
+    next_retry_count = job.retry_count + 1
+    retried_at = time.time()
+    # terminal → pending 原子转换：两个并发 retry 只有一个获胜（输家拿到 400），
+    # 与 worker 收尾 / cancel 的竞争也不会互相覆盖（expected 取读取时点的状态快照）
+    ok = transition_job(
+        job_id,
+        expected_status,
+        JobStatus.PENDING,
+        fields={
+            "payload": json.dumps(fresh_payload, ensure_ascii=False),
+            "error": None,
+            "result_paths": None,
+            "progress": "[]",
+            "retry_count": next_retry_count,
+            "retried_at": retried_at,
+            "summary_edited_at": None,
+        },
+    )
+    if not ok:
+        raise ValueError(f"job {job_id} 状态已变化（当前非终态），请刷新后重试")
+
+    # 清空输出目录，确保 pipeline 不命中旧缓存、从头执行。
+    # 放在转换获胜之后：竞争失败的 retry 不得误删获胜方即将重建的产物目录
     job_dir = Path(output_base()) / job_id
     if job_dir.exists():
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -758,16 +935,31 @@ def retry_job(job_id: str, summary_template: str | None = None) -> Job:
     job.error = None
     job.result_paths = None
     job.progress = JobProgress()
-    job.retry_count += 1
-    job.retried_at = time.time()
+    job.retry_count = next_retry_count
+    job.retried_at = retried_at
     # 输出目录已清空重建，编辑稿随之失效——编辑标记必须同步清零
     job.summary_edited_at = None
-    job.save()
     _jobs[job_id] = job
     _cancel_flags.discard(job_id)
     enqueue_job(job)
     logger.info("job %s retried #%d (status -> pending, fresh config)", job_id, job.retry_count)
     return job
+
+
+def _delete_terminal_job_row(job_id: str) -> None:
+    """条件删除终态任务行；任务不存在抛 KeyError，竞争失败（已非终态）抛 ValueError。
+
+    把「读状态 → 删行」的竞态收敛进 SQL：读时终态、删前恰被 retry 转回 pending 的
+    任务不会被误删（affected rows = 0 → 报错让调用方重读重试）。
+    """
+    db.init_db()
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM jobs WHERE job_id = ? AND status IN (?, ?, ?)",
+            (job_id, JobStatus.FAILED, JobStatus.COMPLETED, JobStatus.CANCELLED),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"job {job_id} 状态已变化（运行/等待中不可删除），请刷新后重试")
 
 
 def delete_job(job_id: str) -> None:
@@ -794,9 +986,7 @@ def delete_job(job_id: str) -> None:
     job_dir = Path(output_base()) / job_id
 
     # 1) 删除 DB 记录（成功即视为任务已注销，后续文件清理失败不影响一致性）
-    db.init_db()
-    with db.get_conn() as conn:
-        conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+    _delete_terminal_job_row(job_id)
     # 全文检索索引同步删除（jobs 表行删后索引行不会级联清理）
     from .fts_index import remove_job_from_index
 
@@ -879,12 +1069,12 @@ _AUTH_ERROR_RE = re.compile(
 # 而不是把上游内部报文原样抛给普通用户。
 _HTTP_BLOCK_RE = re.compile(r"HTTP Error (412|429)\b|Too Many Requests", re.IGNORECASE)
 
-# base_url 内嵌凭据（user:pass@host）会随上游异常文本回显，入库/回显前统一打码
-_URL_CRED_RE = re.compile(r"//([^/@\s:]+):([^/@\s]+)@")
-
-
+# base_url 内嵌凭据（user:pass@host）会随上游异常文本回显，入库/回显前统一打码。
+# 实现统一收敛在 log_export.scrub_url_credentials（诊断导出与对外文案共用同一规则）
 def _scrub_url_credentials(text: str) -> str:
-    return _URL_CRED_RE.sub(r"//\1:***@", text)
+    from ..log_export import scrub_url_credentials
+
+    return scrub_url_credentials(text)
 
 
 def _user_facing_error(exc: Exception) -> str:
@@ -929,7 +1119,15 @@ def _run_job_inner(job: Job) -> None:
     if job.status in (JobStatus.CANCELLED, JobStatus.FAILED, JobStatus.COMPLETED):
         logger.info("job %s skipped before start (status=%s)", job.job_id, job.status)
         return
-    job.mark_running()
+    if job.status == JobStatus.PENDING:
+        # pending → running 原子认领：DB 状态已非 pending（排队期间被 cancel/
+        # retry 推进，内存对象尚未同步）时转换失败，放弃执行
+        if not job.mark_running():
+            logger.info("job %s skipped before start (lost pending->running claim, db status changed)", job.job_id)
+            return
+    else:
+        # 直接以 running 状态调用的内部/测试场景：保持原 upsert 行为
+        job.save()
     job.progress.push(JobEvent.STARTED)
     logger.info("job %s started (title=%r)", job.job_id, job.title)
 
@@ -1081,6 +1279,94 @@ def _build_settings(payload: dict, output_dir: str) -> Any:
     return Settings.from_mapping({**payload, "output_dir": output_dir})
 
 
+# ---------------------------------------------------------------- 单实例守卫（P0）
+#
+# VTS Web 明确是 **single-process / single-worker** 模型：Job 调度（_jobs /
+# _cancel_flags / ThreadPoolExecutor / 信号量）、取消标志与启动恢复（resume）都是
+# 进程内状态。SQLite 行级原子转换只能防「状态覆盖」，防不了两个进程各自 resume
+# 同一批 RUNNING/PENDING 任务造成重复执行。因此：
+# - uvicorn --workers > 1、多副本容器、对同一数据目录起第二个 Web 进程，都是错误用法；
+# - 这里用「数据库目录锁文件 + 进程间互斥锁」在启动期给出明确错误：锁随进程死亡
+#   自动释放（无陈旧锁清理问题），Windows 用 msvcrt.locking 等价实现。
+# scripts/web.sh 与 docker/Dockerfile 的默认启动命令均未带 --workers（单进程）。
+
+_scheduler_lock_handles: dict[str, int] = {}
+
+SCHEDULER_LOCK_NAME = "web.lock"
+
+
+class SingleInstanceError(RuntimeError):
+    """同一数据库目录已有另一个 VTS Web 进程在运行（多进程部署不受支持）。"""
+
+
+def scheduler_lock_path() -> Path:
+    """单实例锁文件路径：锚定数据库所在目录（数据目录不同的多实例互不影响）。"""
+    return Path(db.DATABASE_PATH).resolve().parent / SCHEDULER_LOCK_NAME
+
+
+def _lock_exclusive(fd: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(fd: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+def acquire_scheduler_lock() -> None:
+    """获取 Web 单实例锁；本进程已持有（同一 DB 目录）时幂等返回。
+
+    冲突时抛 SingleInstanceError（lifespan 不启动 → uvicorn 以明确错误退出）。
+    """
+    lock_path = scheduler_lock_path()
+    key = str(lock_path)
+    if key in _scheduler_lock_handles:
+        return
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        _lock_exclusive(fd)
+    except OSError as exc:
+        os.close(fd)
+        raise SingleInstanceError(
+            f"另一个 VTS Web 进程已持有运行锁（{lock_path}）。"
+            "VTS Web 是单进程/单 worker 模型：Job 调度、取消与启动恢复均要求单一进程，"
+            "不支持 uvicorn --workers>1、多副本容器或对同一数据目录的第二个实例。"
+            f"（锁冲突详情：{exc}）"
+        ) from None
+    _scheduler_lock_handles[key] = fd
+    logger.info("scheduler lock acquired: %s", lock_path)
+
+
+def release_scheduler_lock() -> None:
+    """释放单实例锁（lifespan 收尾）；未持有时为无操作。进程退出也会自动释放。"""
+    lock_path = scheduler_lock_path()
+    fd = _scheduler_lock_handles.pop(str(lock_path), None)
+    if fd is None:
+        return
+    _unlock(fd)
+    os.close(fd)
+    logger.info("scheduler lock released: %s", lock_path)
+
+
 def _build_source(settings: Any, job: Job) -> Any:
     source_type = job.payload.get("source_type", SourceType.URL)
 
@@ -1122,4 +1408,9 @@ __all__ = [
     "upload_base",
     "is_managed_upload",
     "sweep_orphan_uploads",
+    "transition_job",
+    "acquire_scheduler_lock",
+    "release_scheduler_lock",
+    "scheduler_lock_path",
+    "SingleInstanceError",
 ]

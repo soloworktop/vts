@@ -105,31 +105,40 @@ def _auth_token() -> str:
 async def lifespan(app: FastAPI):
     configure_logging()
     logger.info("web console starting (db=%s)", os.environ.get("VIDEO_TO_SUMMARY_DB", "default"))
-    try:
-        # 进程重启后恢复未完成的任务
-        resume_pending_jobs()
-    except Exception:  # noqa: BLE001 - 启动恢复失败不阻塞服务
-        logger.exception("failed to resume pending jobs on startup")
-    try:
-        # 历史数据修复：把「URL 当标题」的旧任务用产物 summary 的真实标题回填
-        backfill_titles_from_outputs()
-    except Exception:  # noqa: BLE001 - 回填失败不阻塞服务
-        logger.exception("failed to backfill job titles on startup")
-    try:
-        # 全文检索索引补漏：为缺失 jobs_fts 行的 completed 任务重建索引
-        # （v8 升级存量 / 索引失败残留；幂等，产物缺失的任务安全跳过）
-        from .fts_index import backfill_missing_index
+    # 单实例守卫：必须在启动恢复（resume）之前持有——Job 调度/取消/恢复都要求
+    # 单进程（single-process / single-worker），第二个进程对同一数据目录启动时
+    # 在这里以明确错误拒绝（uvicorn --workers>1 / 多副本容器均不受支持，见 tasks.py）。
+    from .tasks import acquire_scheduler_lock, release_scheduler_lock
 
-        backfill_missing_index()
-    except Exception:  # noqa: BLE001 - 索引补漏失败不阻塞服务（检索自动降级）
-        logger.exception("failed to backfill fts index on startup")
+    acquire_scheduler_lock()
     try:
-        # 孤儿上传清扫：进程在「上传落盘后、建任务完成前」崩溃残留的
-        # uploads/<uuid>/ 目录（引用判定失败时自动放弃，绝不误删）
-        sweep_orphan_uploads()
-    except Exception:  # noqa: BLE001 - 清扫失败不阻塞服务
-        logger.exception("failed to sweep orphan uploads on startup")
-    yield
+        try:
+            # 进程重启后恢复未完成的任务
+            resume_pending_jobs()
+        except Exception:  # noqa: BLE001 - 启动恢复失败不阻塞服务
+            logger.exception("failed to resume pending jobs on startup")
+        try:
+            # 历史数据修复：把「URL 当标题」的旧任务用产物 summary 的真实标题回填
+            backfill_titles_from_outputs()
+        except Exception:  # noqa: BLE001 - 回填失败不阻塞服务
+            logger.exception("failed to backfill job titles on startup")
+        try:
+            # 全文检索索引补漏：为缺失 jobs_fts 行的 completed 任务重建索引
+            # （v8 升级存量 / 索引失败残留；幂等，产物缺失的任务安全跳过）
+            from .fts_index import backfill_missing_index
+
+            backfill_missing_index()
+        except Exception:  # noqa: BLE001 - 索引补漏失败不阻塞服务（检索自动降级）
+            logger.exception("failed to backfill fts index on startup")
+        try:
+            # 孤儿上传清扫：进程在「上传落盘后、建任务完成前」崩溃残留的
+            # uploads/<uuid>/ 目录（引用判定失败时自动放弃，绝不误删）
+            sweep_orphan_uploads()
+        except Exception:  # noqa: BLE001 - 清扫失败不阻塞服务
+            logger.exception("failed to sweep orphan uploads on startup")
+        yield
+    finally:
+        release_scheduler_lock()
 
 
 app = FastAPI(title="VTS web console", lifespan=lifespan)
