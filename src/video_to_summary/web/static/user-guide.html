@@ -6,7 +6,9 @@
 <title>VTS 使用指引</title>
 <style>
 /* 设计系统：版式结构沿用产品手册双栏体系；色板与 Web 控制台一致
-   （珊瑚主色 + 暖纸底，token 取自 web-src/src/styles/style.css） */
+   （珊瑚主色 + 暖纸底，token 取自 web-src/src/styles/style.css）
+   内容定位：面向已运行控制台的用户，讲清功能与上手路径；
+   部署方式与全部环境变量归 README / docs，不在本页展开 */
 :root{
   color-scheme:light;
   --bg:#f3efe9; --surface:#ffffff; --surface-2:#faf7f2;
@@ -147,13 +149,6 @@ section{margin-top:52px;scroll-margin-top:20px}
 .note.info{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 25%,transparent)}
 .note.info::before{content:"ℹ️"}
 .note b{font-weight:700}
-/* pipeline visual */
-.pipeline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:18px 0 6px}
-.pipeline .ph{
-  background:var(--surface-2);border:1px dashed var(--border-strong);border-radius:11px;
-  padding:9px 15px;font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:7px;
-}
-.pipeline .arr{color:var(--text-3);font-size:15px}
 /* tables */
 .tbl{width:100%;border-collapse:collapse;margin:14px 0 4px;font-size:14px}
 .tbl th{
@@ -239,15 +234,13 @@ footer{
       </div>
     </div>
     <nav id="toc">
-      <a href="#intro"><span class="ico">✨</span>产品简介</a>
-      <a href="#install"><span class="ico">🚀</span>安装与启动</a>
+      <a href="#start"><span class="ico">✨</span>快速上手</a>
       <a href="#create"><span class="ico">🎬</span>创建任务</a>
-      <a href="#llm"><span class="ico">🔑</span>配置 LLM（BYOK）</a>
-      <a href="#status"><span class="ico">📡</span>任务状态与结果</a>
-      <a href="#settings"><span class="ico">⚙️</span>设置</a>
+      <a href="#llm"><span class="ico">🔑</span>配置 LLM</a>
+      <a href="#tasks"><span class="ico">📡</span>任务与结果</a>
+      <a href="#settings"><span class="ico">⚙️</span>设置与模板</a>
       <a href="#faq"><span class="ico">❓</span>常见问题</a>
       <a href="#privacy"><span class="ico">🔒</span>数据与隐私</a>
-      <a href="#capabilities"><span class="ico">🧩</span>能力边界</a>
     </nav>
     <div class="side-foot">
       <span>Web 控制台 · 单用户<br>数据全在本机</span>
@@ -263,369 +256,242 @@ footer{
       <header class="hero">
         <div class="kicker">视频 URL → 结构化 Markdown 笔记</div>
         <h1>VTS 使用指引</h1>
-        <p class="sub">粘贴视频链接或选择本地文件，VTS 优先直接使用视频自带字幕生成笔记——没有字幕时才下载音频、调用你自己配置的转写接口。所有数据都保存在你自己的机器上。</p>
+        <p class="sub">粘贴视频链接或选择本地文件，VTS 优先直接使用视频自带字幕生成笔记——没有字幕时才转写。所有数据都保存在你自己的机器上。</p>
         <div class="flow">
-          <div class="step"><span class="n">1</span><span class="em">🔗</span><b>粘贴链接</b><span>YouTube / B 站链接，或本地音视频文件、浏览器上传</span></div>
+          <div class="step"><span class="n">1</span><span class="em">🔗</span><b>粘贴链接</b><span>YouTube / B 站链接，或本地音视频文件</span></div>
           <div class="arrow">→</div>
-          <div class="step"><span class="n">2</span><span class="em">🎬</span><b>提取内容</b><span>有字幕直用零成本；无字幕才转写（你的 Whisper 端点）</span></div>
+          <div class="step"><span class="n">2</span><span class="em">🎬</span><b>提取内容</b><span>有字幕直用零成本；无字幕才转写</span></div>
           <div class="arrow">→</div>
-          <div class="step"><span class="n">3</span><span class="em">📝</span><b>生成笔记</b><span>结构化 Markdown 总结 + 转写全文 + SRT 字幕</span></div>
+          <div class="step"><span class="n">3</span><span class="em">📝</span><b>生成笔记</b><span>结构化总结 + 转写全文 + SRT 字幕</span></div>
         </div>
       </header>
 
-      <!-- 01 产品简介 -->
-      <section id="intro">
-        <div class="sec-head"><span class="num">01</span><h2>产品简介</h2></div>
-        <p class="sec-lead">VTS 是一个自部署的单用户工具：把视频变成结构化 Markdown 笔记。<b>BYOK</b>（Bring Your Own Key）——转写与总结都走你自己配置的 OpenAI 兼容端点，没有账号、没有订阅、没有用量上报。</p>
+      <!-- 01 快速上手 -->
+      <section id="start">
+        <div class="sec-head"><span class="num">01</span><h2>快速上手</h2></div>
+        <p class="sec-lead">打开控制台（默认 <code>http://127.0.0.1:8080</code>），三步完成第一个任务。正在读这份手册，说明服务已经跑起来了。</p>
+
         <div class="card">
-          <div class="menu-grid">
-            <div class="m"><span class="em">🌐</span><b>支持站点</b><span>YouTube、Bilibili 等任意 yt-dlp 支持的 http(s) 站点</span></div>
-            <div class="m"><span class="em">📥</span><b>三种输入</b><span>视频 URL / 本地文件路径 / 浏览器上传</span></div>
-            <div class="m"><span class="em">📄</span><b>输出内容</b><span>结构化总结 + 转写全文 + SRT 字幕 + 分段信息</span></div>
-            <div class="m"><span class="em">🏠</span><b>数据在本机</b><span>任务、配置、产物都保存在你自己的机器上</span></div>
-          </div>
+          <h3>🚀 第一次任务</h3>
+          <ol>
+            <li>「设置 → LLM 配置」填入你的 OpenAI 兼容端点与 Key；</li>
+            <li>「新建总结」粘贴视频链接，选好总结模板（默认「通用」即可）；</li>
+            <li>点开始，实时查看进度；</li>
+            <li>完成后得到 Markdown 笔记，可在线编辑、打标签、全文检索。</li>
+          </ol>
+          <div class="note tip"><b>没配 Key 也能用</b>：视频自带字幕时照常出完整笔记，全程零成本；无字幕的视频只跳过总结，仍产出转写原文，之后补上 Key 点「重新生成」即可。</div>
         </div>
+
         <div class="card">
-          <h3>🪶 字幕优先，零成本路径</h3>
-          <p>视频<b>自带可用字幕</b>（人工字幕或平台自动字幕）时，VTS 直接以字幕文本作为转写结果：<b>不下载音频、不调用任何转写接口、零 API 成本</b>，也不需要配置任何 Key。</p>
-          <div class="pipeline">
-            <span class="ph">🔍 提取字幕清单</span><span class="arr">→</span>
-            <span class="ph">🎬 有字幕 → 直接出稿</span>
+          <h3>🧭 控制台界面</h3>
+          <div class="menu-grid">
+            <div class="m"><span class="em">🎬</span><b>新建总结</b><span>链接 / 本地文件 / 上传三种来源</span></div>
+            <div class="m"><span class="em">📡</span><b>任务状态</b><span>进行中与失败任务的进度</span></div>
+            <div class="m"><span class="em">🗂️</span><b>历史任务</b><span>检索、结果查看与导出</span></div>
+            <div class="m"><span class="em">⚙️</span><b>设置</b><span>LLM、字幕策略、模板、标签</span></div>
           </div>
-          <p class="muted">没有可用字幕时自动回退：下载音频 → 用你配置的 Whisper 兼容接口转写 → 生成总结。</p>
         </div>
       </section>
 
-      <!-- 02 安装与启动 -->
-      <section id="install">
-        <div class="sec-head"><span class="num">02</span><h2>安装与启动</h2></div>
-        <p class="sec-lead">VTS <b>尚未发布 PyPI</b>，请按形态选择：服务器 / 长期自部署用 Docker（推荐）；本机使用用源码运行；只想命令行出稿用 Release 发行包。</p>
-
-        <div class="card">
-          <h3>🐳 Docker（推荐）</h3>
-          <ol>
-            <li>一键起服务：<code>docker run -d --name vts -p 8080:8080 -v vts_data:/data -v vts_output:/output --restart unless-stopped ghcr.io/soloworktop/vts:latest</code>。</li>
-            <li>已克隆仓库时也可源码构建：<code>docker compose -f docker/docker-compose.yml up -d --build</code>。</li>
-            <li>浏览器打开 <code>http://127.0.0.1:8080</code>；数据存在 <code>vts_data</code> / <code>vts_output</code> 两个卷里，删容器、<code>down</code> 都不丢。镜像标签、端口冲突与升级见仓库 <code>docker/README.md</code>。</li>
-          </ol>
-        </div>
-
-        <div class="card">
-          <h3>💻 源码运行（venv）</h3>
-          <p class="muted">需要 Python 3.10+；ffmpeg 仅在「视频无字幕、需要转写」时用到（macOS <code>brew install ffmpeg</code> · Debian/Ubuntu <code>apt install ffmpeg</code> · Windows <code>winget install Gyan.FFmpeg</code>）。</p>
-          <ol>
-            <li>建环境并安装：<code>python3 -m venv .venv &amp;&amp; source .venv/bin/activate &amp;&amp; pip install -e .</code>（Windows PowerShell 激活脚本为 <code>.venv\Scripts\Activate.ps1</code>）。</li>
-            <li>启动 Web 控制台：<code>bash scripts/web.sh</code>（自动建 venv、装依赖、起服务）。</li>
-            <li>打开 <code>http://127.0.0.1:8080</code>；端口被占用时 <code>web.sh</code> 会自动顺延到下一个可用端口（也可 <code>--port</code> / <code>PORT</code> 指定）。</li>
-          </ol>
-        </div>
-
-        <div class="card">
-          <h3>⌨️ 只想用 CLI（不出 Web 控制台）</h3>
-          <p>直接安装 <a href="https://github.com/soloworktop/vts/releases" target="_blank" rel="noopener">Release</a> 里的发行包（wheel）：</p>
-          <ol>
-            <li><code>pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl</code>。</li>
-            <li>命令行出稿：<code>vts "&lt;视频链接&gt;"</code>（等价 <code>python -m video_to_summary.main</code>）；产物直接写在 <code>./output/</code>（无任务子目录，<code>--output-dir</code> 可改）。</li>
-            <li>原生 Windows 没有 bash：直接运行 <code>python -m video_to_summary.main</code>，或使用 WSL。免手动建环境可用 <code>bash scripts/run.sh "&lt;视频链接&gt;"</code>。</li>
-          </ol>
-        </div>
-
-        <div class="card">
-          <h3>🧭 控制台主界面</h3>
-          <p class="muted">左侧四个功能视图，本手册后续章节按此展开。</p>
-          <div class="menu-grid">
-            <div class="m"><span class="em">🎬</span><b>新建总结</b><span>URL / 本地文件 / 浏览器上传三种来源</span></div>
-            <div class="m"><span class="em">📡</span><b>任务状态</b><span>进行中与失败任务的进度、停止与重试</span></div>
-            <div class="m"><span class="em">🗂️</span><b>历史任务</b><span>检索、标签、结果查看与导出</span></div>
-            <div class="m"><span class="em">⚙️</span><b>设置</b><span>LLM 配置、任务默认、模板、导出日志</span></div>
-          </div>
-          <div class="note info"><b>第一次任务（5 分钟）</b>：① 「设置 → LLM 配置」填入你的 OpenAI 兼容端点与 Key；② 「新建总结」粘贴视频链接、选总结模板（默认「通用」即可）；③ 点开始，实时查看进度；④ 完成后得到 Markdown 笔记，可在线编辑、打标签、全文检索。</div>
-          <div class="note info">Release 发行包与 Docker 镜像自带已构建前端；源码检出未构建前端时，首页显示「前端尚未构建」指引页（<code>cd web-src &amp;&amp; pnpm install &amp;&amp; pnpm build</code>），API 不受影响。</div>
-        </div>
-      </section>
-
-      <!-- 03 创建任务 -->
+      <!-- 02 创建任务 -->
       <section id="create">
-        <div class="sec-head"><span class="num">03</span><h2>创建任务</h2></div>
-        <p class="sec-lead">新建任务支持三种来源，任选其一；标题不填会自动取名（解析到视频真实标题后自动回填），标签与总结模板可选。</p>
+        <div class="sec-head"><span class="num">02</span><h2>创建任务</h2></div>
+        <p class="sec-lead">「新建总结」里三种来源任选其一；标题不填会自动取名（解析到视频真实标题后自动回填）。</p>
 
         <div class="card">
-          <h3>🌐 URL 来源</h3>
+          <h3>🌐 视频链接</h3>
           <ul>
-            <li>粘贴视频链接（B 站、YouTube、Twitter/X、抖音、微博、小红书等 yt-dlp 支持的站点均可）。</li>
-            <li>只接受 <code>http://</code> / <code>https://</code> 链接；需要登录态的内容用 cookies 提供（见 <a href="#settings">设置</a>）。</li>
-            <li>任务页显示的处理进度与每个阶段的耗时；下载阶段有实时进度条，长音频转写按分片回报进度。</li>
+            <li>粘贴 B 站、YouTube 等站点的视频地址，点开始即可；</li>
+            <li><b>有字幕的视频最快最省</b>：直接用字幕出稿，不下载、不转写；</li>
+            <li>需要登录态的内容（B 站 AI 字幕、会员视频等）先配好 cookies，见<a href="#settings">设置与模板</a>。</li>
           </ul>
         </div>
 
         <div class="card">
           <h3>📁 本地文件</h3>
           <ul>
-            <li>直接填本机音视频文件的<b>绝对路径</b>（服务端所在机器能看到的路径）。</li>
-            <li>点「浏览…」逐级导航挑选（回车起步目录可跟随输入框当前值）；支持唤起系统<b>原生文件选择框</b>（macOS / Windows），不支持的平台自动回退目录浏览面板。</li>
-            <li>支持格式：<code>mp4 mkv mov avi webm flv wmv m4v mpg mpeg ts</code> 与音频 <code>mp3 m4a aac wav flac ogg opus</code>。</li>
-            <li>你的本地源文件<b>永远不会被 VTS 删除</b>——删除任务只清理它自己的产物目录。</li>
+            <li>填本机音视频文件的路径，或点「浏览…」逐级挑选；</li>
+            <li>支持常见视频与音频格式（mp4 / mkv / mov / mp3 / wav / flac 等）；</li>
+            <li>你的本地文件<b>永远不会被 VTS 删除</b>——删除任务只清理它自己的产物。</li>
           </ul>
         </div>
 
         <div class="card">
-          <h3>📤 浏览器上传</h3>
-          <p>给 <b>远程 / Docker 部署</b>用的补充入口：容器里看不到你本机的文件，点「上传本地文件…」选择文件——选完即自动上传并创建任务（一步完成落盘 + 建任务）。本机部署不需要它，用「浏览…」直接读取即可。</p>
+          <h3>📤 上传文件</h3>
           <ul>
-            <li>单文件上限默认 <b>2048MB</b>（环境变量 <code>VTS_UPLOAD_MAX_MB</code> 可调），上传中可点按钮取消。</li>
-            <li>支持格式与「本地文件」一致；文件存放在服务端托管目录 <code>uploads/&lt;uuid&gt;/</code>。</li>
-            <li>上传文件归服务端托管：<b>删除任务时会连带回收</b>，重试不受影响。</li>
+            <li>服务部署在远程 / Docker 时，容器看不到你本机的文件——点「上传本地文件…」，选完即自动上传并创建任务；</li>
+            <li>单文件默认上限约 2GB；本机部署不需要上传，「浏览…」直接读取。</li>
           </ul>
         </div>
 
         <div class="card">
           <h3>🏷️ 标签与总结模板</h3>
           <ul>
-            <li><b>标签（可选）</b>：创建时输入一个或多个标签，历史页可按标签筛选、在标签管理里重命名 / 合并 / 删除。</li>
-            <li><b>总结模板（可选）</b>：唯一支持按任务指定的处理配置；不选则跟随全局默认「通用」。重试时也可以换模板（见 <a href="#status">任务状态与结果</a>）。</li>
+            <li><b>标签</b>：创建时随手输入，之后在历史页按标签筛选；</li>
+            <li><b>总结模板</b>：决定笔记的组织方式，默认「通用」，创建时可按次选择。</li>
           </ul>
         </div>
       </section>
 
-      <!-- 04 配置 LLM -->
+      <!-- 03 配置 LLM -->
       <section id="llm">
-        <div class="sec-head"><span class="num">04</span><h2>配置 LLM（BYOK）</h2></div>
-        <p class="sec-lead">本版不自带任何模型通道，请自备任意 <b>OpenAI 兼容</b>端点（OpenAI、DeepSeek、SiliconFlow、本地 vLLM / Ollama 均可）。两个槽位互相独立。</p>
+        <div class="sec-head"><span class="num">03</span><h2>配置 LLM</h2></div>
+        <p class="sec-lead">转写与总结都走你自己配置的 OpenAI 兼容端点（DeepSeek、SiliconFlow、本地 vLLM / Ollama 均可）。没有账号、没有订阅，Key 只存在你自己的机器上。</p>
 
         <div class="card">
           <h3>🎛️ 两个槽位</h3>
           <table class="tbl">
-            <thead><tr><th>槽位</th><th>用途</th><th>要求</th></tr></thead>
+            <thead><tr><th>槽位</th><th>什么时候需要</th></tr></thead>
             <tbody>
-              <tr><td>推理模型</td><td>生成总结；开启文本润色时也用它</td><td>OpenAI 兼容 <code>/chat/completions</code></td></tr>
-              <tr><td>语音识别模型</td><td>视频没有字幕时转写音频</td><td>Whisper 兼容 <code>/audio/transcriptions</code></td></tr>
+              <tr><td>推理模型</td><td>生成总结（开启文本润色时也用它）</td></tr>
+              <tr><td>语音识别模型</td><td>仅当视频<b>没有</b>字幕、需要转写时</td></tr>
             </tbody>
           </table>
-          <p>每个槽位填三项：<code>base_url</code>（接入地址）、<code>api_key</code>、<code>model</code>（模型名）。只填一个槽位也能用——用不到的功能才需要对应 Key。</p>
+          <p>每个槽位填三项：<code>base_url</code>（接入地址）、<code>api_key</code>、<code>model</code>（模型名）。只用字幕出稿的话，一个 Key 都不需要。</p>
         </div>
 
         <div class="card">
-          <h3>⌨️ 两种配置方式</h3>
+          <h3>⌨️ 怎么配</h3>
           <ol>
-            <li><b>界面</b>：「设置 → LLM 配置」，填好保存即生效（改完无需重启）。</li>
-            <li><b>环境变量</b>：推理槽 <code>SUMMARY_API_KEY</code> / <code>SUMMARY_BASE_URL</code> / <code>SUMMARY_MODEL</code>，转写槽 <code>ASR_API_KEY</code> / <code>ASR_BASE_URL</code> / <code>ASR_MODEL</code>，写进仓库根目录的 <code>.env</code> 后重启服务生效。旧名 <code>LLM_API_KEY</code> / <code>OPENAI_API_KEY</code> 等继续有效（兼容别名，日志会提示一次更名）。</li>
+            <li>「设置 → LLM 配置」，填好点保存，立即生效；</li>
+            <li>习惯环境变量的话，也可以写进仓库根目录的 <code>.env</code>（<code>SUMMARY_API_KEY</code> 等）后重启服务，或点「从 .env 导入」一次性迁入。</li>
           </ol>
-          <div class="note info"><b>Key 的安全</b>：API Key 以 Fernet 加密落库（密文前缀 <code>enc:v1:</code>），加密密钥独立存放；接口只回掩码值，绝不会明文返回。也可以用「LLM 配置 → 从 .env 导入」一次性迁入。</div>
-        </div>
-
-        <div class="card">
-          <h3>🪶 不配置也能用</h3>
-          <p><b>未配置任何 Key 时任务不会失败</b>：自带字幕的视频照常出完整笔记；没有字幕的视频仍会产出转写原文（<code>.txt</code> / <code>.srt</code>），只是跳过总结步骤，处理过程里会明确标注 <code>summarize_skipped</code>——不会静默缺产物。</p>
-          <div class="note tip"><b>补上 Key 后</b>：在历史任务里点「重新生成」即可得到完整笔记，转写部分命中缓存不会重复计费。</div>
+          <div class="note info"><b>Key 的安全</b>：Key 加密落库，界面只显示掩码，不会明文返回。</div>
         </div>
       </section>
 
-      <!-- 05 任务状态与结果 -->
-      <section id="status">
-        <div class="sec-head"><span class="num">05</span><h2>任务状态与结果</h2></div>
-        <p class="sec-lead">历史任务页展示全部任务（支持全文检索与标签筛选），右侧是所选任务的详情、产物与操作。</p>
+      <!-- 04 任务与结果 -->
+      <section id="tasks">
+        <div class="sec-head"><span class="num">04</span><h2>任务与结果</h2></div>
+        <p class="sec-lead">「任务状态」看进行中与失败的任务，「历史任务」查看全部结果——支持全文检索与标签筛选。</p>
 
         <div class="card">
-          <h3>🔄 状态与可用操作</h3>
+          <h3>🔄 状态与操作</h3>
           <table class="tbl">
-            <thead><tr><th>状态</th><th>含义</th><th>可用操作</th></tr></thead>
+            <thead><tr><th>状态</th><th>你能做什么</th></tr></thead>
             <tbody>
-              <tr><td><span class="plat run">等待中</span></td><td>已排队，按并发上限依次执行</td><td>取消（立即终止）</td></tr>
-              <tr><td><span class="plat run">运行中</span></td><td>显示当前阶段与实时进度</td><td>停止（当前阶段边界中止）</td></tr>
-              <tr><td><span class="plat ok">已完成</span></td><td>产物就绪</td><td>查看 / 编辑 / 导出 / 重新生成 / 删除</td></tr>
-              <tr><td><span class="plat err">失败</span></td><td>显示脱敏后的可行动错误文案</td><td>重试 / 删除</td></tr>
-              <tr><td><span class="plat stop">已停止</span></td><td>被手动取消</td><td>重试 / 删除</td></tr>
+              <tr><td><span class="plat run">等待 / 运行中</span></td><td>「停止」——在当前阶段结束边界安全中止，不会留半写文件</td></tr>
+              <tr><td><span class="plat ok">已完成</span></td><td>查看 / 编辑 / 导出 / 重新生成 / 删除</td></tr>
+              <tr><td><span class="plat err">失败 / 已停止</span></td><td>「重试」（可换总结模板）或「删除」</td></tr>
             </tbody>
           </table>
-          <p class="muted">停止只请求、不强杀：运行中的任务在当前阶段（下载 / 转写 / 总结）结束边界安全中止，不会留下半写的产物文件。</p>
+          <p class="muted">失败时看到的是一句话的可行动提示；完整细节在「处理过程」事件链里。</p>
         </div>
 
         <div class="card">
-          <h3>📄 产物五件套</h3>
-          <p>每个任务的产物都在 <code>output/&lt;任务id&gt;/</code> 下（Docker 在 <code>/output</code>）。文件名前缀 <code>&lt;内容ID&gt;</code>：URL 源是视频 ID，本地文件是原文件名：</p>
+          <h3>📄 你会得到</h3>
           <ul>
-            <li><code>&lt;内容ID&gt;.summary.md</code> —— 结构化 Markdown 总结（必有，可在线编辑）；</li>
-            <li><code>&lt;内容ID&gt;.txt</code> —— 转写 / 字幕全文（必有）；</li>
-            <li><code>&lt;内容ID&gt;.srt</code> —— SRT 字幕（字幕 / 转写含时间轴时生成）；</li>
-            <li><code>&lt;内容ID&gt;.segments.json</code> —— 分段数据（含时间轴时生成）；</li>
-            <li><code>&lt;内容ID&gt;.polished.txt</code> —— 润色稿（启用文本润色时生成）。</li>
-          </ul>
-          <p class="muted">控制台里可直接预览；「导出」下载为 Markdown 附件（本版不提供 PDF 导出）。</p>
-        </div>
-
-        <div class="card">
-          <h3>✏️ 编辑总结 / 重试</h3>
-          <ul>
-            <li><b>编辑总结</b>：详情页直接修改总结并保存，覆盖写回产物文件，显示「已编辑 · 时间」徽标。</li>
-            <li><b>重试 / 重新生成</b>：清空该任务产物目录后从头执行（转写不会命中旧缓存）；可在重试时<b>更换总结模板</b>，其余配置取当前全局默认。</li>
-            <li><b>编辑稿会随重新生成失效</b>——重试 = 放弃编辑稿、按新配置重新产出；编辑徽标同步清零。</li>
-            <li><b>删除任务</b>：清理任务记录与产物目录，<b>不影响你自己的本地源文件</b>（浏览器上传的源文件会连带回收）。</li>
+            <li><b>总结</b>：结构化 Markdown 笔记——可在线编辑，保存后显示「已编辑」徽标；</li>
+            <li><b>转写全文 + SRT 字幕 + 分段</b>：标准文本文件，可单独导出；</li>
+            <li><b>导出</b>：笔记下载为 Markdown 附件；</li>
+            <li><b>重新生成</b>：清空产物按当前配置重跑（转写命中缓存不重复消耗），可顺手换个模板；编辑稿会随之失效。</li>
           </ul>
         </div>
 
         <div class="card">
           <h3>🔍 检索与备份</h3>
           <ul>
-            <li><b>全文检索</b>：搜索框可命中转写正文与总结内容（带高亮片段），也支持按标题 / 链接匹配。</li>
-            <li><b>标签筛选</b>：按标签过滤历史列表；标签支持重命名、合并、删除。</li>
-            <li><b>导出 / 导入历史</b>：把全部任务 + 标签 + 自定义模板 + 产物打包成 zip 下载，「导入历史」还原到另一台机器（已存在的任务自动跳过）——换机 / 备份推荐用它。</li>
+            <li><b>搜索</b>：直接搜转写正文与总结内容，命中处高亮；</li>
+            <li><b>标签</b>：按标签过滤历史列表；</li>
+            <li><b>导出 / 导入历史</b>：把全部任务连同产物打包成 zip，换机器一键还原。</li>
           </ul>
         </div>
       </section>
 
-      <!-- 06 设置 -->
+      <!-- 05 设置与模板 -->
       <section id="settings">
-        <div class="sec-head"><span class="num">06</span><h2>设置</h2></div>
-        <p class="sec-lead">设置页共四个页签：任务默认、LLM 配置（见<a href="#llm">第四章</a>）、总结模板、标签管理；「导出日志」在页面顶部。</p>
-
-        <div class="card">
-          <h3>🗂️ 设置页导航</h3>
-          <div class="menu-grid">
-            <div class="m"><span class="em">📝</span><b>任务默认</b><span>字幕策略等新任务的公共行为</span></div>
-            <div class="m"><span class="em">🔑</span><b>LLM 配置</b><span>推理 / 语音识别两槽位的接入信息</span></div>
-            <div class="m"><span class="em">📚</span><b>总结模板</b><span>内置 10 种 + 自定义模板管理</span></div>
-            <div class="m"><span class="em">🏷️</span><b>标签管理</b><span>重命名、合并、删除标签</span></div>
-          </div>
-        </div>
+        <div class="sec-head"><span class="num">05</span><h2>设置与模板</h2></div>
+        <p class="sec-lead">设置页四个页签：任务默认、LLM 配置、总结模板、标签管理；「导出日志」在页面顶部。</p>
 
         <div class="card">
           <h3>📝 字幕策略（任务默认）</h3>
-          <p>视频自带字幕时跳过「下载音频 + 转写」，更快更省。三个选项：</p>
+          <p>视频自带字幕时跳过「下载音频 + 转写」，更快更省：</p>
           <ul>
             <li><b>有字幕就用（人工优先，没有则转写）</b>——默认推荐；</li>
             <li><b>仅用人工字幕（没有则转写）</b>；</li>
             <li><b>关闭（始终下载 + 转写）</b>。</li>
           </ul>
-          <p class="muted">字幕语言默认自动（中文优先、英文兜底，含 B 站 AI 字幕兜底）；文本润色（<code>POLISH_TRANSCRIPT</code>，默认关）、音频格式（Web 默认 <code>mp3</code>）等暂未在界面暴露，经环境变量 / API 调整。</p>
         </div>
 
         <div class="card">
           <h3>📚 总结模板</h3>
-          <p><b>内置模板</b>（只读，共 10 种，可在创建任务时按次选择、重试时更换）：</p>
+          <p><b>内置 10 种</b>（只读，创建任务时可按次选择）：</p>
           <div class="chips">
             <span class="chip hl">通用（默认）</span>
             <span class="chip">精简笔记</span><span class="chip">详细笔记</span><span class="chip">教程笔记</span>
             <span class="chip">学术笔记</span><span class="chip">会议纪要</span><span class="chip">商业分析</span>
             <span class="chip">小红书笔记</span><span class="chip">生活随笔</span><span class="chip">任务清单</span>
           </div>
-          <ul style="margin-top:14px">
-            <li><b>自定义模板</b>：点「＋ 新建模板」，用<b>一段话提示词</b>描述「总结什么、怎么组织」，保存后即可选用；内置模板不可编辑 / 删除。</li>
-            <li>模板的排版样式由系统统一保证，提示词只需关心内容组织。</li>
-          </ul>
+          <p style="margin-top:14px">想要自己的风格？点「<b>＋ 新建模板</b>」，用一段话描述「总结什么、怎么组织」即可，排版由系统统一负责。</p>
         </div>
 
         <div class="card">
-          <h3>🍪 浏览器 cookies（网络与访问）</h3>
-          <p>需要登录态的视频内容（B 站 AI/CC 字幕、会员视频，YouTube 自动字幕 / 会员内容），本版不内置任何扫码登录，由你提供 cookies：</p>
+          <h3>🍪 需要登录的内容</h3>
+          <p>B 站 AI/CC 字幕、会员视频，YouTube 自动字幕等需要登录态——在「设置 → 网络与访问」选择你<b>已登录</b>的浏览器，VTS 直接读取它的登录态：</p>
           <ul>
-            <li><b>浏览器 cookies</b>（推荐）：在「设置 → 网络与访问」选择你已登录的浏览器，VTS 直接读取该浏览器的登录态。选好后点「测试读取」可预检——只显示域名计数与登录态提示，<b>绝不回传 cookie 值</b>。</li>
-            <li><b>cookies 文件</b>：环境变量 <code>VTS_COOKIES_FILE</code> 指向 cookies.txt（等价 CLI <code>--cookies</code>）；与浏览器 cookies 互斥，显式文件优先。</li>
-            <li><span class="plat run">macOS</span>&nbsp;Chromium 系浏览器首次读取会弹钥匙串授权，点「始终允许」；Safari 需给运行 VTS 的进程「完全磁盘访问权限」。&nbsp;<span class="plat ok">Windows</span>&nbsp;直接读取，无需额外授权。</li>
+            <li>点「测试读取」可预检：只显示域名计数与登录状态，<b>不显示任何 cookie 内容</b>；</li>
+            <li>macOS 首次读取 Chromium 系浏览器会弹钥匙串授权，点「始终允许」；</li>
+            <li>也可以改用 cookies 文件（环境变量 <code>VTS_COOKIES_FILE</code>），两者二选一。</li>
           </ul>
-          <div class="note warn"><b>cookies 等同账号凭据</b>：注意保管，不要提交进仓库、不要写进会外发的文件；仅限个人使用并遵守平台服务条款。</div>
-        </div>
-
-        <div class="card">
-          <h3>🌐 网络与运行</h3>
-          <ul>
-            <li><b>网络代理</b>：填 <code>http://</code> / <code>socks5://</code> 等代理地址（留空 = 自动 / 直连），访问受限站点时使用。</li>
-            <li><b>自定义 User-Agent</b>：环境变量 <code>VTS_USER_AGENT</code>，非浏览器 UA 可绕过按 UA 信誉发起的 B 站 412 挑战（见<a href="#faq">常见问题</a>）。</li>
-            <li><b>并发上限</b>：环境变量 <code>VIDEO_TO_SUMMARY_MAX_CONCURRENT</code>（默认 2）——同时运行的任务数。</li>
-            <li><b>单任务超时</b>：<code>VIDEO_TO_SUMMARY_JOB_TIMEOUT</code>（秒，默认 0 = 不限），超时任务按失败收尾。</li>
-            <li><b>上传大小上限</b>：<code>VTS_UPLOAD_MAX_MB</code>（默认 2048）。</li>
-          </ul>
-          <div class="note info"><b>单进程模型</b>：VTS Web 是 single-process / single-worker 设计，请勿用 <code>uvicorn --workers&gt;1</code> 或多副本部署（第二个进程会被数据目录锁拒绝启动，详见<a href="#privacy">数据与隐私</a>）。</div>
+          <div class="note warn"><b>cookies 等同账号凭据</b>：注意保管，仅限个人使用并遵守平台服务条款。</div>
         </div>
       </section>
 
-      <!-- 07 常见问题 -->
+      <!-- 06 常见问题 -->
       <section id="faq">
-        <div class="sec-head"><span class="num">07</span><h2>常见问题</h2></div>
-        <p class="sec-lead">点开问题查看答案；没找到答案时，用「设置 → 导出日志」下载<b>已自动脱敏</b>的诊断日志再排查或求助。</p>
+        <div class="sec-head"><span class="num">06</span><h2>常见问题</h2></div>
+        <p class="sec-lead">点开问题查看答案；没找到答案时，用「设置 → 导出日志」下载<b>已自动脱敏</b>的日志再排查或求助。</p>
 
         <details class="faq" open>
           <summary>下载被拦截：B 站 412 / YouTube 429 怎么办？</summary>
-          <div class="faq-body">这是站点风控 / 限流，不是故障。三个解法任选：① 设置环境变量 <code>VTS_USER_AGENT=Wget/1.21.3</code>（非浏览器 UA，可绕过按 UA 信誉发起的 412 挑战）；② 提供登录 cookies——<code>VTS_COOKIES_FILE</code> 指向 cookies.txt 或在「设置 → 网络与访问」选浏览器 cookies；③ 配置代理后重试。Docker 部署详见仓库 <code>docker/README.md</code>「网络与风控」。</div>
+          <div class="faq-body">这是站点风控 / 限流，不是故障。三个解法任选：① 设置环境变量 <code>VTS_USER_AGENT</code> 为非浏览器 UA（如 <code>Wget/1.21.3</code>）；② 提供登录 cookies（见<a href="#settings">设置与模板</a>）；③ 配置代理后重试。详见仓库 <code>docker/README.md</code>「网络与风控」。</div>
         </details>
         <details class="faq">
-          <summary>提示「no usable subtitle」/ B 站 AI 字幕拿不到？</summary>
-          <div class="faq-body">B 站 AI/CC 字幕通常需登录才能获取，YouTube 自动字幕对匿名访问也会定点限流。在「设置 → 网络与访问」选一个已登录对应站点的浏览器（或设 <code>VTS_COOKIES_FILE</code>）后重试；命中字幕的任务更快且零转写成本。</div>
+          <summary>提示 no usable subtitle / B 站 AI 字幕拿不到？</summary>
+          <div class="faq-body">B 站 AI/CC 字幕、YouTube 自动字幕通常需要登录态。在「设置 → 网络与访问」配好浏览器 cookies 后重试——命中字幕的任务更快且零转写成本。</div>
         </details>
         <details class="faq">
           <summary>任务失败提示「LLM 调用被拒绝（认证失败）」？</summary>
-          <div class="faq-body">到「设置 → LLM 配置」逐项检查：<b>API Key</b> 是否填对、<b>base_url</b> 是否以 <code>http(s)://</code> 开头、<b>模型名</b>是否是该端点支持的拼写（如 <code>deepseek-chat</code>）。自建 / 第三方兼容端点需确认它支持所用模型。排查无果时导出脱敏日志求助。</div>
+          <div class="faq-body">到「设置 → LLM 配置」逐项检查：<b>API Key</b> 是否正确、<b>base_url</b> 是否以 <code>http(s)://</code> 开头、<b>模型名</b>拼写是否为该端点支持的（如 <code>deepseek-chat</code>）。</div>
         </details>
         <details class="faq">
           <summary>任务生成了转写但没有总结？</summary>
-          <div class="faq-body">这是<b>无 Key 降级</b>：推理槽没配 Key 时只出转写（<code>.txt</code> / <code>.srt</code>），处理过程里有 <code>summarize_skipped</code> 标注。补好 Key 后点「重新生成」即可，转写部分走缓存不会重复消耗。</div>
+          <div class="faq-body">这是无 Key 降级：推理槽没配 Key 时只出转写。补好 Key 后点「重新生成」即可，转写部分走缓存，不会重复消耗。</div>
         </details>
         <details class="faq">
           <summary>浏览器上传失败？</summary>
-          <div class="faq-body">常见原因：① 文件类型不在支持列表（音视频扩展名白名单）；② 超过大小上限（默认 2048MB，可用 <code>VTS_UPLOAD_MAX_MB</code> 调整）。远程部署还可以改用「本地文件」路径直读——前提是该路径在服务端机器上可见。</div>
+          <div class="faq-body">常见原因：文件类型不支持（音视频扩展名白名单），或超过大小上限（默认约 2GB）。本机部署可以不走上传，直接用「浏览…」读本地路径。</div>
         </details>
         <details class="faq">
-          <summary>如何更换端口 / 数据在哪？</summary>
-          <div class="faq-body">端口：<code>bash scripts/web.sh --port 8090</code> 或环境变量 <code>PORT=8090</code>；端口被占用时会自动顺延。数据位置：源码运行为仓库根 <code>data/app.db</code> 与 <code>output/</code>；wheel 安装（非源码检出）在平台用户数据目录（macOS <code>~/Library/Application Support/VTS/</code>、Windows <code>%LOCALAPPDATA%\VTS\</code>、Linux <code>~/.local/share/vts/</code>）；Docker 在 volume <code>/data</code> 与 <code>/output</code>。详见<a href="#privacy">数据与隐私</a>。</div>
-        </details>
-        <details class="faq">
-          <summary>转写 / 总结能加速吗？</summary>
-          <div class="faq-body">优先命中字幕（零下载、零转写）：配好浏览器 cookies 让 B 站 / YouTube 的登录字幕可用；字幕策略保持「自动」。确需转写时选择就近的 Whisper 端点；总结耗时取决于推理端点的响应速度。调大 <code>VIDEO_TO_SUMMARY_MAX_CONCURRENT</code> 可并行跑多个任务。</div>
+          <summary>端口被占了 / 数据存在哪？</summary>
+          <div class="faq-body">端口被占用时 <code>web.sh</code> 会自动顺延下一个，也可以 <code>bash scripts/web.sh --port 8090</code> 指定。数据都在本机：数据库（任务与配置）+ 产物目录（<code>output/&lt;任务id&gt;/</code>，Docker 在 <code>/output</code> 卷）。备份迁移用「导出历史 / 导入历史」。</div>
         </details>
       </section>
 
-      <!-- 08 数据与隐私 -->
+      <!-- 07 数据与隐私 -->
       <section id="privacy">
-        <div class="sec-head"><span class="num">08</span><h2>数据与隐私</h2></div>
-        <p class="sec-lead">所有数据都保存在你自己的机器上；VTS 没有任何云端存储、遥测或用量上报。</p>
+        <div class="sec-head"><span class="num">07</span><h2>数据与隐私</h2></div>
+        <p class="sec-lead">所有数据都保存在你自己的机器上；VTS 没有云端存储、没有遥测、没有用量上报。</p>
 
         <div class="card">
-          <h3>📁 数据目录</h3>
-          <table class="tbl">
-            <thead><tr><th>形态</th><th>位置</th></tr></thead>
-            <tbody>
-              <tr><td>源码运行</td><td><code>&lt;仓库根&gt;/data/app.db</code> + <code>&lt;仓库根&gt;/output/</code></td></tr>
-              <tr><td>wheel 安装</td><td>macOS <code>~/Library/Application Support/VTS/</code> · Windows <code>%LOCALAPPDATA%\VTS\</code> · Linux <code>~/.local/share/vts/</code></td></tr>
-              <tr><td>Docker</td><td>volume <code>/data/app.db</code> + <code>/output</code></td></tr>
-            </tbody>
-          </table>
-          <p class="muted">均可用 <code>VIDEO_TO_SUMMARY_DB</code> / <code>VIDEO_TO_SUMMARY_OUTPUT_DIR</code> 覆盖。数据库存任务历史与配置，<code>output/&lt;任务id&gt;/</code> 存产物文件。</p>
-        </div>
-
-        <div class="card">
-          <h3>🔒 安全说明</h3>
+          <h3>🔒 安全要点</h3>
           <ul>
-            <li><b>API Key 加密落盘</b>：Fernet 加密（<code>enc:v1:</code> 前缀），加密密钥独立存放；接口只回掩码；数据库文件权限 0600。</li>
-            <li><b>诊断日志自动脱敏</b>：导出的日志已抹去 Key / 密文 / token / cookie / URL 凭据 / 主目录路径，可放心外发。</li>
-            <li><b>暴露局域网 / 公网前必须设 Token</b>：环境变量 <code>VIDEO_TO_SUMMARY_TOKEN</code>，设置后所有 <code>/api/v1</code> 请求需带 Bearer Token；默认只监听 <code>127.0.0.1</code>。</li>
-            <li><b>单进程约束</b>：任务调度 / 取消 / 启动恢复都要求单一进程；第二个进程对同一数据目录启动会被运行锁明确拒绝（勿用 <code>--workers&gt;1</code>、多副本容器或共用数据目录）。</li>
-            <li><b>备份迁移</b>：用「导出历史 / 导入历史」打包还原；或停服后整目录复制数据目录与产物目录。</li>
+            <li><b>Key 加密落盘</b>，界面只回掩码；诊断日志导出前自动脱敏，可放心外发；</li>
+            <li><b>默认只监听本机</b>——要暴露到局域网 / 公网，先设置 <code>VIDEO_TO_SUMMARY_TOKEN</code> 启用访问口令；</li>
+            <li><b>单实例设计</b>：请勿多个实例共用同一数据目录（第二个实例会被明确拒绝启动）。</li>
           </ul>
         </div>
-      </section>
-
-      <!-- 09 能力边界 -->
-      <section id="capabilities">
-        <div class="sec-head"><span class="num">09</span><h2>能力边界</h2></div>
-        <p class="sec-lead">VTS 刻意保持单用户、BYOK 形态。可选能力由插件声明，以 <code>GET /api/v1/capabilities</code> 的返回为准；本构建不含任何插件，响应为空对象。</p>
 
         <div class="card">
-          <h3>🚧 明确不做的事</h3>
-          <ul>
-            <li><b>不内置本地转写</b>——转写只走你配置的 OpenAI 兼容 Whisper API，不下载本地模型；</li>
-            <li><b>不内置站点登录集成</b>——没有扫码登录，需要登录态的内容用 cookies 自行提供；</li>
-            <li><b>无 PDF 导出</b>——产物导出为 Markdown；历史整体导出 / 导入为 zip；</li>
-            <li><b>单用户</b>——无账号体系、无多租户、无用量看板；</li>
-            <li><b>产物不加水印</b>——输出即原始标准文件。</li>
-          </ul>
-          <p class="muted">其中部分能力（如 PDF 导出）可经插件挂载点扩展（<code>vts.plugins</code> entry points）；完整的范围取舍见仓库 <code>CONTRIBUTING.md</code>「范围宣言」。</p>
+          <h3>🚧 能力边界</h3>
+          <p>VTS 刻意保持单用户、BYOK 形态：<b>不内置本地转写模型</b>（只走你配置的 Whisper 兼容端点）、<b>不内置站点扫码登录</b>（cookies 自备）、<b>无 PDF 导出</b>、无多用户。可选能力由插件声明，以 <code>GET /api/v1/capabilities</code> 为准。</p>
         </div>
 
         <div class="card">
-          <h3>🔗 相关资源</h3>
+          <h3>🔗 深入阅读</h3>
           <ul>
-            <li>GitHub 仓库与完整文档：<a href="https://github.com/soloworktop/vts" target="_blank" rel="noopener">github.com/soloworktop/vts</a></li>
-            <li>HTTP API 参考：仓库 <code>docs/api.md</code>（canonical 前缀 <code>/api/v1</code>）</li>
-            <li>环境变量全集：仓库 <code>docs/configuration.md</code> 与 <code>.env.example</code></li>
+            <li>部署方式（Docker / 源码 / CLI）与全部环境变量：<a href="https://github.com/soloworktop/vts" target="_blank" rel="noopener">GitHub README</a> 与 <code>docs/configuration.md</code>；</li>
+            <li>HTTP API 参考：仓库 <code>docs/api.md</code>（前缀 <code>/api/v1</code>）。</li>
           </ul>
         </div>
       </section>
