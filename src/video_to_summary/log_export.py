@@ -98,6 +98,21 @@ def _home_patterns() -> list[str]:
     return sorted((h for h in homes if h and h != "/" and h != "\\"), key=len, reverse=True)
 
 
+# URL 内嵌凭据（http://user:pass@host）：base_url / proxy 带认证时，httpx/openai
+# SDK 的 INFO 访问日志（"HTTP Request: POST http://user:pass@host/v1/..."）会原样
+# 回显完整 URL——str(request.url) 保留 userinfo，必须打码
+_URL_CRED_RE = re.compile(r"//([^/@\s:]+):([^/@\s]+)@")
+
+
+def scrub_url_credentials(text: str) -> str:
+    """把 URL userinfo 形态的凭据（``user:pass@host``）统一打码为 ``user:***@``。
+
+    脱敏的唯一实现点：诊断导出（sanitize_text）与对外错误文案（web/tasks 的
+    _user_facing_error）共用本函数，避免规则漂移。
+    """
+    return _URL_CRED_RE.sub(r"//\1:***@", text)
+
+
 def sanitize_text(text: str) -> str:
     """对导出文本统一脱敏：Key/密文/token/cookie/主目录。
 
@@ -132,6 +147,23 @@ def sanitize_text(text: str) -> str:
         r"\1" + REDACTED,
         out,
     )
+    # 8. 认证头的非 Bearer 形态（Basic / API-Key 等整值打码；Bearer 行已由规则 4 处理）。
+    #    bearer 排除必须用 `.*\bbearer\b` 全行扫描——`(?!bearer\b)` 紧跟 `\s*` 会被
+    #    回宣传绕（\s* 吐回空格后前瞻位置上不是 bearer，整行被误打码）
+    out = re.sub(
+        r"(?im)^(\s*(?:authorization|x-api-key|api-key)\s*:\s*)(?!.*\bbearer\b).+$",
+        r"\1" + REDACTED,
+        out,
+    )
+    # 9. token 族下划线形态（access_token= / refresh_token= / id_token=——规则 5 的
+    #    \btoken= 因下划线属 word 字符、无词边界而覆盖不到）
+    out = re.sub(
+        r"(?i)\b((?:access|refresh|id)_token=)[^&\s'\"<>]+",
+        r"\1" + REDACTED,
+        out,
+    )
+    # 10. URL userinfo 凭据（http://user:pass@host）
+    out = scrub_url_credentials(out)
     return out
 
 
@@ -257,6 +289,7 @@ __all__ = [
     "attach_ring_buffer",
     "get_ring_handler",
     "sanitize_text",
+    "scrub_url_credentials",
     "build_log_bundle",
     "export_filename",
 ]

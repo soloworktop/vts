@@ -116,6 +116,35 @@ def test_sanitize_rules():
     assert "monkey=1" in out  # \b 防误伤
 
 
+def test_sanitize_rules_url_userinfo_and_token_family():
+    """补充规则：URL userinfo 凭据 / token 族下划线形态 / 非 Bearer 认证头。"""
+    text = "\n".join(
+        [
+            # httpx/openai SDK 的 INFO 访问日志会回显完整 URL（保留 userinfo）
+            'HTTP Request: POST http://alice:s3cret@llm.internal:8000/v1/chat/completions "HTTP/1.1 401 Unauthorized"',
+            "base_url=https://bob:hunter2@gateway.example/v1 ok=1",
+            "https://api.test/v1/files?access_token=at123456&id_token=idt456&x=1",
+            "callback?refresh_token=rt789abc&next=2",
+            "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+            "X-Api-Key: my-api-key-value-123",
+            "api-key: another-key-value-456",
+        ]
+    )
+    out = sanitize_text(text)
+    # URL userinfo：user 与 host 保留，密码打码
+    assert "alice:***@llm.internal:8000" in out and "s3cret" not in out
+    assert "bob:***@gateway.example" in out and "hunter2" not in out
+    # token 族下划线形态（规则 5 的 \btoken= 覆盖不到）
+    assert "access_token=[REDACTED]" in out and "at123456" not in out
+    assert "id_token=[REDACTED]" in out and "idt456" not in out
+    assert "refresh_token=[REDACTED]" in out and "rt789abc" not in out
+    assert "next=2" in out and "x=1" in out  # 普通参数保留
+    # 非 Bearer 认证头整值打码
+    assert "dXNlcjpwYXNzd29yZA" not in out
+    assert "my-api-key-value-123" not in out
+    assert "another-key-value-456" not in out
+
+
 def test_build_bundle_sections_sanitized_and_no_leak(fresh_ring, tmp_path, monkeypatch):
     from video_to_summary import db as store_db
 

@@ -12,6 +12,7 @@
 import os
 
 from .. import db
+from ..log_export import scrub_url_credentials as _scrub_url_credentials
 
 # 内置默认值（name -> 默认值）
 _JOB_DEFAULTS: dict[str, str] = {
@@ -90,7 +91,8 @@ def set_job_defaults(values: dict) -> None:
             proxy = str(value or "").strip()
             if proxy and not proxy.lower().startswith(_PROXY_SCHEMES):
                 raise ValueError(
-                    f"invalid proxy url: {value!r} (需以 {'/'.join(_PROXY_SCHEMES)} 开头，留空 = 自动)"
+                    # proxy 可能带认证（user:pass@host），回显前打码（400 detail 会原样返回给前端）
+                    f"invalid proxy url: {_scrub_url_credentials(str(value))!r} (需以 {'/'.join(_PROXY_SCHEMES)} 开头，留空 = 自动)"
                 )
             cleaned.append((name, proxy))
         elif name in _JOB_DEFAULTS:

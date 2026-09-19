@@ -92,7 +92,10 @@ def run(
             else:
                 fetched = extractor(subtitle_config)
         except Exception as exc:  # noqa: BLE001 - 字幕失败回退音频，不中断任务
-            logger.warning("subtitle extraction failed, fallback to audio: %s", exc)
+            # 异常文本可能内嵌 URL/proxy 凭据（yt-dlp 报文），统一打码后进日志
+            from .log_export import scrub_url_credentials
+
+            logger.warning("subtitle extraction failed, fallback to audio: %s", scrub_url_credentials(str(exc)))
             fetched = None
         _emit(
             on_event,
