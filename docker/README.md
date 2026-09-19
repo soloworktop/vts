@@ -109,6 +109,12 @@ bash scripts/docker.sh up
 > 上表均为**运行期**环境变量；构建期镜像源参数（`APT_MIRROR` / `PIP_INDEX_URL` /
 > `NPM_REGISTRY`）见「加速构建（可选）」。
 
+> **单进程约束（务必遵守）**：VTS Web 是 single-process / single-worker 模型——任务
+> 调度、取消与启动恢复（resume）都是进程内状态。默认容器启动命令只起 **1 个
+> worker**；请勿修改 CMD 追加 `uvicorn --workers N`（N>1），请勿
+> `docker compose --scale vts=N` 水平扩容，也不要让多个容器共用同一 `/data` 卷——
+> 内置的数据目录运行锁会在第二个进程启动时给出明确错误（锁随进程退出自动释放）。
+
 ### 转写响应格式
 
 `ASR_RESPONSE_FORMAT` 默认**自动降级**：先请求 `verbose_json`（含分段/时间戳，可产出

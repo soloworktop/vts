@@ -57,3 +57,8 @@ SQLite 库路径解析（`db.py::resolve_database_path`，纯函数、可单测�
 | `VTS_COOKIES_FILE` | 登录 cookies 文件（等价 CLI `--cookies`，显式文件优先于浏览器 cookies，两者互斥）；文件不存在时 WARN 并说明路径，不静默忽略 |
 | `HOST` / `PORT` | `scripts/web.sh` 的监听地址与端口（默认 `127.0.0.1:8080`；`--port` 参数优先） |
 | `VTS_NETWORK_TESTS` | 测试开关：置 1 后运行联网集成用例（默认跳过，不影响运行期行为） |
+
+> **单进程约束**：VTS Web 是 single-process / single-worker 模型（任务调度、取消与
+> 启动恢复均为进程内状态）。请勿以 `uvicorn --workers N`（N>1）启动或让多个进程共用
+> 同一 `VIDEO_TO_SUMMARY_DB` 目录；数据目录运行锁会在第二个进程启动时给出明确错误。
+> 详见 README「安全」与 `docs/tech-debt.md`。

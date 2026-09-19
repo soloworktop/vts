@@ -305,6 +305,13 @@ VTS 为**个人自部署**设计，默认只监听本机。要把服务暴露到
   ASR / LLM API 时，相应的音频或文本会发送给你配置的服务商，具体取决于你的配置与
   对方的数据政策；
 - API Key 经 Fernet 加密落库，接口只回掩码值，不会明文返回；
+- **单进程模型**：VTS Web 是 single-process / single-worker 设计——任务调度、取消
+  与启动恢复（resume）都是进程内状态。请勿使用 `uvicorn --workers N`（N>1）、
+  `docker compose --scale vts=N` 或让多个进程共用同一数据目录；内置的数据目录
+  运行锁会在第二个进程启动时给出明确错误（锁随进程退出自动释放）；
+- **URL 源范围**：任务可提交任意 http(s) 地址（含私网 / localhost）。默认本机部署
+  下无跨用户风险；暴露到局域网 / 公网后，持有 Token 的访问者可让服务器向内网发起
+  请求，因此除设置 Token 外还应限制网络可达范围（详见 [`docs/tech-debt.md`](docs/tech-debt.md)）；
 - cookies 等同账号凭据：注意保管，不要提交进仓库、不要写进会外发的文件；
 - 漏洞报告渠道与自部署加固要点见 [`SECURITY.md`](SECURITY.md)。
 

@@ -124,6 +124,16 @@ VTS_LIVE_E2E=1 bash scripts/e2e.sh live  # 真实边界端到端（真实下载/
 
 ## 关键约定与坑（改代码前必读）
 
+- **Web 单进程（single-process / single-worker）**：任务调度（`web/tasks.py` 的进程内
+  `_jobs`/`_cancel_flags`/线程池/信号量）与 `resume_pending_jobs()` 启动恢复都要求单一
+  进程；数据目录锁文件（`acquire_scheduler_lock`，flock/msvcrt，随进程退出自动释放）
+  在启动期以明确错误拒绝第二个进程。`uvicorn --workers>1`、多副本容器、共用同一
+  `VIDEO_TO_SUMMARY_DB` 目录的多实例都是不受支持的配置（`scripts/web.sh` 与 docker
+  CMD 默认均无 `--workers`）。
+- **Job 状态写入必须走 `transition_job`**：`UPDATE jobs SET status=? WHERE job_id=?
+  AND status=expected` 按 affected rows 判胜负——cancel/retry/worker 收尾在状态竞争下
+  绝不互相覆盖（输家放弃写入或重读 DB 分支）。禁止用「读 status → Python 判断 → 盲写
+  `Job.save()`」推进状态；`save()` 仅用于非状态字段的普通落库。
 - **迁移**：`db._apply_migrations` 执行后**必须无条件写回 schema_version**（否则新库会
   重复 ALTER）；唯一例外：数据库 schema **高于**本 App 时不回写（防旧版把版本号降级，
   升级回跳时新版重跑已执行的迁移），经 `db_newer_version()` 暴露给 `/api/v1/health`。

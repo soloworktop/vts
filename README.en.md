@@ -330,6 +330,16 @@ If you expose the service beyond your machine, you **must** set
   text is sent to the providers you configure — subject to your configuration and their
   data policies;
 - API keys are Fernet-encrypted at rest; the API only ever returns masked values;
+- **Single-process model**: VTS Web is single-process / single-worker by design — job
+  scheduling, cancellation, and startup resume are all in-process state. Do not use
+  `uvicorn --workers N` (N>1), `docker compose --scale vts=N`, or share one data
+  directory across processes; a built-in data-directory lock rejects a second process
+  at startup with a clear error (released automatically when the process exits);
+- **URL source scope**: jobs accept any http(s) address (including private/localhost
+  targets). The default localhost-only deployment has no cross-user exposure; once
+  exposed to a LAN/public network, a visitor holding the token can make the server
+  reach into internal networks — set the token and restrict network reachability
+  (see [`docs/tech-debt.md`](docs/tech-debt.md));
 - Treat cookies like account credentials: keep them safe, never commit them to the
   repository or paste them into files you share;
 - Vulnerability reporting and self-hosting hardening notes:
