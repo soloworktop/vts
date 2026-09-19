@@ -111,3 +111,39 @@ def test_download_progress_hook_ignores_other_statuses():
     hook({"status": "error", "downloaded_bytes": 10, "total_bytes": 100})
     hook({})
     assert emitted == []
+
+
+# ---------------------------------------------------------------- SSRF 审计锚点（P1-6）
+
+def test_url_scheme_allowlist_includes_private_hosts_by_design():
+    """scheme 白名单仅 http/https（拒绝 file:// 等本地协议）。
+
+    SSRF 审计结论（P1-6）：私网/loopback 地址**默认放行**——本产品是单用户自部署
+    BYOK 工具，提交任务的用户即服务器所有者，且局域网媒体服务器（Jellyfin 等）
+    是合法场景；yt-dlp 的重定向链无法低成本覆盖校验（做了也只是安全剧场）。
+    风险在 README「安全」节与 docs/tech-debt.md 记录：暴露公网前必须设
+    VIDEO_TO_SUMMARY_TOKEN；私网拒绝留作未来可选增强（VTS_ALLOW_PRIVATE_URLS）。
+    """
+    from video_to_summary.sources.url import URLAudioSource, _validate_url
+
+    # http/https 恒放行（含私网/loopback 形态，行为不回退）
+    for ok in (
+        "http://127.0.0.1:8080/video.mp4",
+        "https://192.168.1.10/media/a.mp4",
+        "http://localhost:9000/drive/note.mp3",
+    ):
+        _validate_url(ok)
+        URLAudioSource(ok, output_dir=".", audio_format="wav")
+
+    # 非 http(s) scheme 恒拒绝
+    for bad in ("file:///etc/passwd", "gopher://127.0.0.1:70/x", "javascript:alert(1)", ""):
+        try:
+            _validate_url(bad)
+            raised = False
+        except ValueError:
+            raised = True
+        assert raised, f"应拒绝: {bad!r}"
+
+    # scheme 大小写归一；path 中的 '@' 不影响 scheme 判定（非 userinfo 形态）
+    _validate_url("HTTPS://EXAMPLE.COM/A")
+    _validate_url("https://example.com/@javascript:alert(1)")

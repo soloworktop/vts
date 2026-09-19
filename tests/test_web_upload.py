@@ -261,3 +261,70 @@ def test_health_exposes_upload_max_mb(monkeypatch) -> None:
     assert client.get("/api/v1/health").json()["upload_max_mb"] == 2048
     monkeypatch.setenv("VTS_UPLOAD_MAX_MB", "64")
     assert client.get("/api/v1/health").json()["upload_max_mb"] == 64
+
+
+# ---------------------------------------------------------------- 上传生命周期（P1-5）
+
+def test_retry_keeps_managed_upload_file(tmp_path) -> None:
+    """retry 清空的是 output/<job_id>/，托管上传源文件（uploads/）必须原样保留——
+    否则重试任务会在转写阶段因源文件缺失而失败。"""
+    from pathlib import Path
+
+    from video_to_summary.web import tasks as web_tasks
+
+    res = _upload("keep-me.mp3")
+    job_id = res.json()["job_id"]
+    job = web_tasks.get_job(job_id)
+    stored = Path(job.payload["audio_path"])
+    assert stored.is_file()
+
+    # 任务进入终态后 retry：清空产物目录、重建 payload
+    job.mark_completed({"summary": "/tmp/x.md"})
+    retried = web_tasks.retry_job(job_id)
+
+    assert stored.is_file(), "retry 不得删除托管上传的源文件"
+    assert retried.payload["audio_path"] == str(stored), "retry 重建 payload 必须保留源路径"
+    # 产物目录被清空（upload 目录与产物目录分离，互不影响）
+    assert not (tmp_path / "output" / job_id).exists()
+
+
+def test_delete_job_removes_upload_dir_not_uploads_root(tmp_path) -> None:
+    """删除上传源任务：只回收该任务自己的 uploads/<uuid>/ 子目录，托管根目录保留。"""
+    from pathlib import Path
+
+    from video_to_summary.web import tasks as web_tasks
+
+    r1 = _upload("a.mp3")
+    r2 = _upload("b.mp3")
+    job1, job2 = web_tasks.get_job(r1.json()["job_id"]), web_tasks.get_job(r2.json()["job_id"])
+    job1.mark_completed({"summary": "/tmp/a.md"})
+    job2.mark_completed({"summary": "/tmp/b.md"})
+    dir1 = Path(job1.payload["audio_path"]).parent
+    dir2 = Path(job2.payload["audio_path"]).parent
+    assert dir1 != dir2
+
+    web_tasks.delete_job(job1.job_id)
+
+    assert not dir1.exists(), "已删除任务的 upload 子目录应被回收"
+    assert dir2.is_file() is False and Path(job2.payload["audio_path"]).is_file()
+    assert (tmp_path / "uploads").is_dir(), "托管根目录必须保留"
+
+
+def test_sweep_fails_safe_when_db_unreadable(tmp_path, monkeypatch) -> None:
+    """引用集不可用（DB 读取失败）时放弃清扫：宁可暂留，不可误删（fail-safe）。"""
+    from pathlib import Path
+
+    import video_to_summary.db as store_db
+    from video_to_summary.web import tasks as web_tasks
+
+    uploads = tmp_path / "uploads"
+    keep = uploads / "orphan-uuid"
+    keep.mkdir(parents=True)
+    (keep / "f.mp3").write_bytes(b"x")
+
+    def broken_get_conn():
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(web_tasks.db, "get_conn", broken_get_conn)
+    assert web_tasks.sweep_orphan_uploads() == 0
+    assert keep.is_dir(), "DB 不可用时绝不删除任何上传目录"

@@ -484,3 +484,95 @@ def test_pipeline_subtitle_path_emits_title(tmp_path: Path) -> None:
     assert "字幕路径真实标题" in content
     assert "转写模型" not in content
     assert "摘要模型" not in content
+
+
+# ---------------------------------------------------------------- 缓存语义（P1-4）
+
+class _CountingTranscriber:
+    """带调用计数的转写器（验证「文件存在即命中缓存」不重复调 ASR）。"""
+
+    def __init__(self, result: TranscriptResult) -> None:
+        self.result = result
+        self.calls = 0
+
+    def transcribe(self, audio_path: Path, cancel_check=None) -> TranscriptResult:
+        self.calls += 1
+        return self.result
+
+
+class _CountingSummarizer:
+    """带调用计数的总结器。"""
+
+    def __init__(self, summary: str) -> None:
+        self.summary = summary
+        self.calls = 0
+
+    def summarize(self, transcript: str, title: str = "", cancel_check=None) -> str:
+        self.calls += 1
+        return self.summary
+
+
+def _make_meta(audio_path: Path) -> AudioMeta:
+    return AudioMeta(
+        source_id="cachevid",
+        title="Cache Video",
+        source_url="https://example.test/cache",
+        duration=30,
+        uploader="tester",
+        audio_path=audio_path,
+    )
+
+
+def test_pipeline_transcript_cached_summary_regenerated(tmp_path: Path) -> None:
+    """缓存语义矩阵（P1-4）：
+    - 转写产物（.txt）存在 → 转写器不再调用（transcribe_done 带 cached=True）；
+    - summary **无缓存语义** → 总结器每次真实重跑——模板/配置变化后重跑绝不会
+      误用旧 summary（pipeline 始终重新生成并覆盖写盘）。
+    """
+    fake_audio = tmp_path / "a.wav"
+    fake_audio.write_bytes(b"x")
+    meta = _make_meta(fake_audio)
+    source = FakeSource(fake_audio, meta)
+
+    transcriber = _CountingTranscriber(
+        TranscriptResult(text="transcript v1", segments=[TranscriptSegment(0.0, 1.0, "v1")])
+    )
+    summarizer = _CountingSummarizer("summary v1")
+
+    out_dir = tmp_path / "out"
+    summary1 = run(source, transcriber, summarizer, out_dir)
+    assert transcriber.calls == 1 and summarizer.calls == 1
+    assert "summary v1" in summary1.read_text(encoding="utf-8")
+
+    # 第二次运行（同输出目录）：转写命中缓存，总结重新生成
+    summarizer.summary = "summary v2 (fresh config)"
+    summary2 = run(source, transcriber, summarizer, out_dir)
+    assert transcriber.calls == 1, "转写产物已存在，不得重复调用 ASR"
+    assert summarizer.calls == 2, "summary 每次都必须重新生成（无缓存）"
+    assert "summary v2 (fresh config)" in summary2.read_text(encoding="utf-8")
+    assert "summary v1" not in summary2.read_text(encoding="utf-8"), "旧 summary 不得残留"
+
+
+def test_pipeline_cache_miss_after_output_dir_cleared(tmp_path: Path) -> None:
+    """retry 语义的管线侧保证：输出目录被清空（web 层 retry 行为）后，
+    转写与总结都从头执行，不会复用旧 transcript / 旧 summary。"""
+    fake_audio = tmp_path / "a.wav"
+    fake_audio.write_bytes(b"x")
+    source = FakeSource(fake_audio, _make_meta(fake_audio))
+    transcriber = _CountingTranscriber(TranscriptResult(text="v1", segments=[]))
+    summarizer = _CountingSummarizer("summary v1")
+    out_dir = tmp_path / "out"
+    run(source, transcriber, summarizer, out_dir)
+
+    # 模拟 web 层 retry：清空输出目录
+    import shutil
+
+    shutil.rmtree(out_dir)
+    transcriber.result = TranscriptResult(text="v2", segments=[])
+    summarizer.summary = "summary v2"
+    summary = run(source, transcriber, summarizer, out_dir)
+
+    assert transcriber.calls == 2, "目录清空后不得命中旧转写缓存"
+    summary_text = summary.read_text(encoding="utf-8")
+    assert "summary v2" in summary_text and "summary v1" not in summary_text
+    assert "v2" in (out_dir / "cachevid.txt").read_text(encoding="utf-8")

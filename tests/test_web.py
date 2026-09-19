@@ -502,12 +502,26 @@ def test_terminal_state_and_event_persist_atomically(tmp_path, monkeypatch) -> N
 
     snapshots: list[tuple[str, frozenset]] = []
     original_save = web_tasks.Job.save
+    original_transition = web_tasks.transition_job
 
     def spy_save(self):
         snapshots.append((self.status, frozenset(e["event"] for e in self.progress.to_list())))
         return original_save(self)
 
+    def spy_transition(job_id, expected_status, new_status, *, fields=None):
+        # 终态转换（transition_job）与 save 是两条落库路径，都必须满足
+        # 「终态与终态事件同一次落库」
+        events = frozenset()
+        if fields and "progress" in fields:
+            try:
+                events = frozenset(e["event"] for e in json.loads(fields["progress"]))
+            except (TypeError, ValueError):
+                pass
+        snapshots.append((new_status, events))
+        return original_transition(job_id, expected_status, new_status, fields=fields)
+
     monkeypatch.setattr(web_tasks.Job, "save", spy_save)
+    monkeypatch.setattr(web_tasks, "transition_job", spy_transition)
 
     def assert_no_terminal_snapshot_missing_event() -> None:
         required = {
@@ -651,6 +665,49 @@ def test_auth_required_when_token_configured(monkeypatch) -> None:
     assert res3.status_code == 200
     # 页面与静态资源不要求鉴权
     assert client.get("/").status_code == 200
+
+
+def test_auth_covers_all_management_endpoints(monkeypatch, tmp_path) -> None:
+    """VIDEO_TO_SUMMARY_TOKEN 是管理员级凭证：设置后所有管理 API（含只读与文件读取）
+    必须统一受保护——LLM 配置、删除任务、产物读取、日志导出、设置/模板/标签管理概莫能外。"""
+    monkeypatch.setenv("VIDEO_TO_SUMMARY_TOKEN", "test-secret-token")
+    # /llm/import 会 load_dotenv(".env")：chdir 到 tmp 隔离，绝不把仓库真实 .env
+    # 写进 os.environ 污染后续用例
+    monkeypatch.chdir(tmp_path)
+    # (方法, 路径, json body) —— 覆盖读/写/删除/文件/导出各类管理面
+    protected = [
+        ("GET", "/api/v1/jobs", None),
+        ("GET", "/api/v1/jobs/some-id", None),
+        ("GET", "/api/v1/jobs/some-id/file?path=x", None),
+        ("GET", "/api/v1/jobs/some-id/export?path=x", None),
+        ("GET", "/api/v1/jobs/export", None),
+        ("GET", "/api/v1/logs/export", None),
+        ("GET", "/api/v1/settings", None),
+        ("GET", "/api/v1/llm", None),
+        ("GET", "/api/v1/templates", None),
+        ("GET", "/api/v1/labels", None),
+        ("GET", "/api/v1/health", None),
+        ("POST", "/api/v1/jobs", {"source_type": "url", "url": "https://x"}),
+        ("POST", "/api/v1/jobs/some-id/cancel", None),
+        ("POST", "/api/v1/jobs/some-id/retry", None),
+        ("POST", "/api/v1/llm/import", None),
+        ("PUT", "/api/v1/llm", {"summary": {"api_key": "sk-x"}}),
+        ("PUT", "/api/v1/settings", {}),
+        ("PUT", "/api/v1/templates/t", {"prompt": "p"}),
+        ("PUT", "/api/v1/jobs/some-id/summary", {"content": "c"}),
+        ("PUT", "/api/v1/jobs/some-id/labels", {"labels": []}),
+        ("DELETE", "/api/v1/jobs/some-id", None),
+        ("DELETE", "/api/v1/templates/t", None),
+        ("DELETE", "/api/v1/labels/1", None),
+    ]
+    for method, path, body in protected:
+        res = client.request(method, path, json=body)
+        assert res.status_code == 401, f"{method} {path} 未受 Token 保护（got {res.status_code}）"
+        # 携带正确 Token 后不再以 401 拒绝（其余状态码 = 业务校验结果，如 404/400）
+        ok_res = client.request(
+            method, path, json=body, headers={"Authorization": "Bearer test-secret-token"}
+        )
+        assert ok_res.status_code != 401, f"{method} {path} 携带正确 Token 仍被拒"
 
 
 def test_cancel_pending_job() -> None:
@@ -1192,6 +1249,15 @@ def test_settings_proxy_roundtrip_and_validation() -> None:
 
     assert client.put("/api/v1/settings", json={"proxy": "socks5://127.0.0.1:1080"}).json()["proxy"] == "socks5://127.0.0.1:1080"
     assert client.put("/api/v1/settings", json={"proxy": ""}).json()["proxy"] == ""
+
+
+def test_settings_proxy_error_scrubs_embedded_credentials() -> None:
+    """非法 proxy 的 400 回显不得外带 URL 内嵌凭据（user:pass@host → user:***@）。"""
+    res = client.put("/api/v1/settings", json={"proxy": "ftp://alice:s3cret@proxy:1080"})
+    assert res.status_code == 400
+    detail = res.json()["detail"]
+    assert "s3cret" not in detail
+    assert "alice:***@proxy:1080" in detail
 
 
 def test_cookies_test_endpoint_counts_without_values(monkeypatch) -> None:
@@ -1967,6 +2033,39 @@ def test_retry_clears_summary_edited_at(tmp_path, monkeypatch) -> None:
     retried = web_tasks.retry_job(job.job_id)
     assert retried.summary_edited_at is None
     assert web_tasks.get_job(job.job_id).summary_edited_at is None
+
+
+def test_retry_after_edit_produces_fully_fresh_artifacts(tmp_path, monkeypatch) -> None:
+    """P1-11 回归：用户编辑稿在 retry 后必须**整目录消失**，不产生半旧半新产物——
+    summary 是编辑稿、transcript 却是旧内容（或反之）的组合绝不出现。"""
+    web_tasks, job = _completed_job_with_products(tmp_path, monkeypatch)
+    job_id = job.job_id
+    summary_path = Path(job.result_paths["summary"])
+    transcript_path = Path(job.result_paths["transcript"])
+    old_transcript = transcript_path.read_text(encoding="utf-8")
+
+    # 用户编辑 summary（覆盖写回产物文件）
+    res = client.put(f"/api/v1/jobs/{job_id}/summary", json={"content": "# 用户编辑稿\n\n手工修改的内容"})
+    assert res.status_code == 200
+    assert "用户编辑稿" in summary_path.read_text(encoding="utf-8")
+
+    # retry：目录清空 + 状态清零（编辑稿随目录一起失效，符合「重新生成」语义；
+    # summary_edited_at 状态信息经 GET /jobs/{id} 暴露，前端据此展示编辑徽标）
+    monkeypatch.setattr(web_tasks, "enqueue_job", lambda j: None)
+    retried = web_tasks.retry_job(job_id)
+    assert retried.summary_edited_at is None
+    # 编辑稿随输出目录一起清空（不残留在盘上，也不会与后续新生成内容混排）
+    assert not summary_path.exists() and not transcript_path.exists()
+
+    # 模拟重跑完成：产物全部重新生成（新 summary + 新转写，不存在半旧半新组合）
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text("# 重新生成的总结", encoding="utf-8")
+    transcript_path.write_text("重新生成的转写全文", encoding="utf-8")
+    retried.mark_completed(retried.result_paths)
+    assert "重新生成的总结" in summary_path.read_text(encoding="utf-8")
+    assert old_transcript not in transcript_path.read_text(encoding="utf-8")
+    detail = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert detail["summary_edited_at"] is None, "重新生成后不得残留编辑标记"
 
 
 def test_export_filenames_use_format_extension(tmp_path, monkeypatch) -> None:

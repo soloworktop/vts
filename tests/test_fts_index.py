@@ -165,3 +165,78 @@ def test_search_empty_and_whitespace_query(fts_db, tmp_path):
     fts_index.index_job_artifacts("job1", paths)
     assert fts_index.search_jobs_meta("") == {}
     assert fts_index.search_jobs_meta("   ") == {}
+
+
+# ---------------------------------------------------------------- 一致性矩阵（P1-10）
+# 约定：DB = 任务元数据 / filesystem = 产物事实源 / FTS = 派生索引（可随时重建）。
+# 以下用例锁定三者间失败组合的可观测行为与可修复性。
+
+def test_completed_job_with_missing_summary_file(fts_db, tmp_path):
+    """DB=completed 但 summary 文件缺失：检索不崩（该类跳过）、不产出错误命中。"""
+    result_paths = _write_artifacts(tmp_path, "job-missing", "转写正文在这里", "总结正文")
+    (Path(result_paths["summary"])).unlink()  # 文件系统侧丢失
+
+    fts_index.index_job_artifacts("job-missing", result_paths)
+    hits = fts_index.search_jobs_meta("总结正文")
+    assert "job-missing" not in hits, "缺失文件的 kind 不得产生索引行"
+    hits2 = fts_index.search_jobs_meta("转写正文")
+    assert "job-missing" in hits2, "仍在盘的转写文本照常可检索"
+
+
+def test_startup_backfill_recovers_missing_index(fts_db, tmp_path):
+    """FTS 行缺失（索引失败残留 / v8 升级存量）：启动 backfill 从盘上产物恢复索引。"""
+    result_paths = _write_artifacts(tmp_path, "job-backfill", "恢复测试转写", "恢复测试总结")
+    _insert_job("job-backfill", "回填任务", result_paths)
+    # 模拟索引丢失：无任何 jobs_fts 行
+    assert fts_index.search_jobs_meta("恢复测试转写") == {}
+
+    assert fts_index.backfill_missing_index() == 1
+    hits = fts_index.search_jobs_meta("恢复测试转写")
+    assert "job-backfill" in hits
+
+
+def test_backfill_skips_job_whose_artifacts_gone(fts_db, tmp_path):
+    """DB=completed 但产物文件全部缺失：backfill 安全跳过（不建空行、不崩）。
+
+    返回值语义是「处理的无索引任务数」（含产物缺失者），因此只断言不产生索引行。"""
+    _insert_job("job-gone", "无产物任务", {"transcript": "/nonexistent/x.txt", "summary": "/nonexistent/x.md"})
+    fts_index.backfill_missing_index()
+    with store_db.get_conn() as conn:
+        rows = conn.execute("SELECT COUNT(*) AS c FROM jobs_fts WHERE job_id = 'job-gone'").fetchone()
+    assert rows["c"] == 0, "产物缺失的任务不得产生空索引行"
+
+
+def test_retry_reindex_replaces_old_content(fts_db, tmp_path):
+    """completed → retry → completed：旧 summary 文本不得残留在 FTS（先删后插）。"""
+    result_paths = _write_artifacts(tmp_path, "job-retry-fts", "重试转写第一版", "重试总结第一版")
+    _insert_job("job-retry-fts", "重试任务", result_paths)
+    fts_index.index_job_artifacts("job-retry-fts", result_paths)
+    assert "job-retry-fts" in fts_index.search_jobs_meta("重试总结第一版")
+
+    # retry：清空产物目录 → 新产物（不同内容）→ 完成时重新索引
+    from pathlib import Path
+
+    import shutil
+
+    shutil.rmtree(tmp_path / "output" / "job-retry-fts")
+    new_paths = _write_artifacts(tmp_path, "job-retry-fts", "重试转写第二版", "重试总结第二版")
+    fts_index.index_job_artifacts("job-retry-fts", new_paths)
+
+    assert "job-retry-fts" not in fts_index.search_jobs_meta("第一版"), "旧 summary 不得残留索引"
+    assert "job-retry-fts" in fts_index.search_jobs_meta("第二版")
+
+
+def test_delete_job_removes_fts_rows(fts_db, tmp_path):
+    """删除任务：DB 行与 FTS 行同步消失（检索不再命中）。"""
+    result_paths = _write_artifacts(tmp_path, "job-del-fts", "删除测试转写", "删除测试总结")
+    _insert_job("job-del-fts", "删除任务", result_paths)
+    fts_index.index_job_artifacts("job-del-fts", result_paths)
+    assert "job-del-fts" in fts_index.search_jobs_meta("删除测试总结")
+
+    fts_index.remove_job_from_index("job-del-fts")
+    assert "job-del-fts" not in fts_index.search_jobs_meta("删除测试总结")
+
+    # delete_job 的完整序列还会删 jobs 行：元数据命中（标题 LIKE）随之消失
+    with store_db.get_conn() as conn:
+        conn.execute("DELETE FROM jobs WHERE job_id = 'job-del-fts'")
+    assert "job-del-fts" not in fts_index.search_jobs_meta("删除任务"), "元数据命中必须随 DB 行删除"
