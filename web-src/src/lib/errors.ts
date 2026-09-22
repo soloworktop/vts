@@ -31,7 +31,17 @@ export const ERROR_PATTERNS: ErrorPattern[] = [
     hint: "请粘贴视频页面地址（支持 B 站、YouTube 等 yt-dlp 兼容站点），而非分享短链或网页嵌入口。",
   },
   {
-    re: /(40[34]|not found|private video|video unavailable|has been removed|removed by the uploader)/i,
+    // 上游端点的「模型无权限」错误（含 one-api/new-api 系 403 与 OpenAI 模型名写错）。
+    // 必须排在视频 403/404 模式之前：API 错误里的 "Error code: 403" 不是视频不可访问。
+    re: /(no access to (?:model|deployment)|not have access to (?:the |this )?model|does not exist or you do not have access|model.{0,30}not found|无可用渠道|无权访问.{0,6}模型|模型无访问权限)/i,
+    title: "模型无访问权限",
+    hint: "你配置的端点/令牌无权调用该模型：请在「设置 → LLM 配置」检查模型名拼写与令牌权限，或改用端点已支持的模型后重试。",
+    action: { panels: ["tabLlm"], label: "去设置" },
+  },
+  {
+    // 403/404 仅在 HTTP 错误措辞（yt-dlp/requests）下才算视频不可访问；
+    // 裸数字会误命中转写/LLM 端点的 "Error code: 403/404"。
+    re: /(HTTP Error 40[34]|40[34][ :]+(?:client error|forbidden|not found)|not found|private video|video unavailable|has been removed|removed by the uploader)/i,
     title: "视频不存在或不可访问",
     hint: "链接可能已失效、被设为私享或存在地区限制。",
   },

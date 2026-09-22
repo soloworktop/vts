@@ -1063,6 +1063,21 @@ _AUTH_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 上游「模型无权限」类错误特征：OpenAI 兼容网关（含 one-api/new-api 系）在 token
+# 无权调用该模型时返回 HTTP 403 + "no access to model ..."，模型名写错时是
+# "does not exist or you do not have access"。这是用户可自行解决的配置问题
+# （改模型名/换端点/调 token 权限），与下载阶段的 403/404（视频不可访问）是两回事，
+# 必须分开归类——否则转写/摘要失败会被误报成「视频不存在或不可访问」。
+_MODEL_ACCESS_RE = re.compile(
+    r"(no access to (?:model|deployment)"
+    r"|not have access to (?:the |this )?model"
+    r"|does not exist or you do not have access"
+    r"|model.{0,30}not found"
+    r"|无可用渠道"
+    r"|无权访问.{0,6}模型)",
+    re.IGNORECASE,
+)
+
 # 站点风控/限流类错误特征：412 = B 站边缘 WAF 按 UA×IP 信誉对 /video/ HTML 页发起挑战
 # （换成非浏览器 UA 即恢复）；429 = 平台限流（YouTube 自动字幕匿名访问被定点限流等）。
 # 这类错误必须给出可直接行动的解法（自定义 UA / 登录 cookies / 代理），
@@ -1082,7 +1097,8 @@ def _user_facing_error(exc: Exception) -> str:
 
     开源版是 BYOK：Key / 接入地址 / 模型名全在用户手里，因此认证类错误不再是
     「联系维护人员」，而是引导用户去「设置 → LLM 配置」自查（这是默认路径，不是
-    边缘场景）。站点风控类错误（412/429）同样给可行动解法（自定义 UA / cookies /
+    边缘场景）。模型无权限类错误（网关 403「token 无该模型权限」等）同理。
+    站点风控类错误（412/429）同样给可行动解法（自定义 UA / cookies /
     代理），不暴露上游内部实现。其余错误（链接不可访问、字幕缺失等用户可行动的
     问题）原样保留，完整异常仍只进日志（logger.exception）。
     """
@@ -1092,6 +1108,12 @@ def _user_facing_error(exc: Exception) -> str:
             "LLM 调用被拒绝（认证失败）：请在「设置 → LLM 配置」检查 API Key、"
             "接入地址（base_url）与模型名是否填写正确并已保存；若使用自建/第三方"
             "兼容端点，请确认其支持所用模型。也可在「设置 → 导出日志」导出诊断日志排查。"
+        )
+    if _MODEL_ACCESS_RE.search(text):
+        return (
+            "LLM/转写调用被拒绝（令牌无权访问该模型）：请在「设置 → LLM 配置」"
+            "检查模型名是否拼写正确、所配 API Key/令牌是否已开通该模型权限；"
+            "或更换为该端点已支持的模型后重试。也可在「设置 → 导出日志」导出诊断日志排查。"
         )
     if _HTTP_BLOCK_RE.search(text):
         return (

@@ -2149,6 +2149,46 @@ def test_user_facing_error_too_many_requests_without_code() -> None:
     assert "VTS_USER_AGENT" in msg
 
 
+def test_user_facing_error_model_no_access_guides_llm_settings() -> None:
+    """上游 403「token 无该模型权限」（one-api/new-api 系网关）：引导检查 LLM 配置，
+    不原样暴露上游报文（含 request id），更不得被归为「视频不可访问」。"""
+    from video_to_summary.web.tasks import _user_facing_error
+
+    raw = (
+        "Error code: 403 - {'error': {'code': '', 'message': 'This token has "
+        "no access to model stepaudio-2.5-asr (request id: "
+        "202609220830282872512108268d9d6PWc1Z6IT)', 'type': 'new_api_error'}}"
+    )
+    msg = _user_facing_error(RuntimeError(raw))
+    assert "设置 → LLM 配置" in msg
+    assert "模型名" in msg
+    assert "权限" in msg
+    assert "无权访问" in msg  # 前端 errors.ts 据此归类为「模型无访问权限」
+    assert raw not in msg  # 上游报文（含 request id）不外露
+    assert "request id" not in msg
+
+
+def test_user_facing_error_model_not_exist_guides_llm_settings() -> None:
+    """模型名写错（OpenAI 404 does not exist / no access）同属 LLM 配置问题。"""
+    from video_to_summary.web.tasks import _user_facing_error
+
+    raw = (
+        "Error code: 404 - {'error': {'message': 'The model `gpt-x` does not "
+        "exist or you do not have access to it.', 'type': 'invalid_request_error'}}"
+    )
+    msg = _user_facing_error(RuntimeError(raw))
+    assert "设置 → LLM 配置" in msg
+    assert raw not in msg
+
+
+def test_user_facing_error_video_http_403_passes_through() -> None:
+    """下载阶段站点 403 属「视频不可访问」家族：原样保留，不得套用模型权限文案。"""
+    from video_to_summary.web.tasks import _user_facing_error
+
+    raw = "ERROR: [youtube] abc: HTTP Error 403: Forbidden"
+    assert _user_facing_error(RuntimeError(raw)) == raw
+
+
 def test_user_facing_error_other_errors_unchanged() -> None:
     """非 412/429 错误原样保留（不套用风控文案，避免误引导）。"""
     from video_to_summary.web.tasks import _user_facing_error
