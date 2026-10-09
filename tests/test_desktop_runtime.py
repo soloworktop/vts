@@ -47,3 +47,35 @@ def test_spawned_backend_ready_and_cleanup(tmp_path, monkeypatch):
     finally:
         backend.stop()
     assert not backend.process.is_alive()
+
+
+def test_shutdown_preserves_work_and_cancel_intent(tmp_path, monkeypatch):
+    import time
+    import pytest
+    from video_to_summary import db
+    from video_to_summary.web import tasks
+    from video_to_summary.constants import JobStatus
+    monkeypatch.setattr(db, "DATABASE_PATH", tmp_path / "jobs.db")
+    db.reset()
+    tasks.configure_runtime()
+    try:
+        job = tasks.create_job({"url": "https://example.test/v"})
+        job.mark_running()
+        tasks.begin_shutdown()
+        with pytest.raises(tasks.JobSuspendedError):
+            tasks._make_cancel_check(job.job_id, time.monotonic(), 0)()
+        tasks._suspend_job(job)
+        assert tasks.get_job(job.job_id, refresh=True).status == JobStatus.PENDING
+        job.mark_running()
+        assert tasks.cancel_job(job.job_id)
+        tasks._suspend_job(job)
+        assert tasks.get_job(job.job_id, refresh=True).status == JobStatus.CANCELLED
+        tasks._suspend_job(job)
+        assert tasks.get_job(job.job_id, refresh=True).status == JobStatus.CANCELLED
+        with pytest.raises(RuntimeError, match="退出"):
+            tasks.create_job({"url": "https://example.test/v"})
+    finally:
+        tasks.configure_runtime()
+        tasks._jobs.clear()
+        tasks._cancel_flags.clear()
+        db.reset()

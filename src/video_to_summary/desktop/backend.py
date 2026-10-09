@@ -47,6 +47,8 @@ async def _serve(connection, paths):
     from starlette.responses import HTMLResponse
     from ..web.app import app, _static_dir
     from ..version import get_version
+    from ..web.tasks import configure_runtime, begin_shutdown, wait_for_shutdown
+    configure_runtime()
     static = _static_dir()
     if not (static / "index.html").is_file() or not list((static / "assets").glob("*.js")):
         raise RuntimeError("桌面前端资源缺失；源码开发请先运行 pnpm build")
@@ -78,6 +80,8 @@ async def _serve(connection, paths):
                 if message == DesktopMessage.STOP:
                     break
             await asyncio.sleep(0.05)
+        begin_shutdown(preserve_pending=True)
+        await wait_for_shutdown(DESKTOP_STOP_TIMEOUT - 2)
         server.should_exit = True
         await serving
     finally:

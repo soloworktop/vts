@@ -52,6 +52,58 @@ class JobCancelledError(BaseException):
         self.user_cancelled = user_cancelled
 
 
+class JobSuspendedError(BaseException):
+    """Desktop shutdown, distinct from user cancellation and business failure."""
+
+
+_shutdown = threading.Event()
+_runtime_lock = threading.RLock()
+_local_source_factory = None
+
+
+def configure_runtime(local_source_factory=None):
+    """Configure before startup recovery; normal Web/CLI behavior remains default."""
+    global _local_source_factory
+    _local_source_factory = local_source_factory
+    _shutdown.clear()
+
+
+def begin_shutdown(preserve_pending=True):
+    """Stop admission and interrupt running work; preserve queued records by default."""
+    with _runtime_lock:
+        _shutdown.set()
+        if not preserve_pending:
+            for job in list(_jobs.values()):
+                cancel_job(job.job_id)
+
+
+async def wait_for_shutdown(timeout):
+    """Wait without cancelling workers that still need to persist their final state."""
+    global _job_executor
+    pending = set(_background_tasks)
+    if pending:
+        _, unfinished = await asyncio.wait(pending, timeout=timeout)
+    else:
+        unfinished = set()
+    with _executor_lock:
+        if _job_executor is not None:
+            _job_executor.shutdown(wait=False, cancel_futures=True)
+            _job_executor = None
+    return not unfinished
+
+
+def _suspend_job(job):
+    with _runtime_lock:
+        current = get_job(job.job_id, refresh=True)
+        if current is None or current.status != JobStatus.RUNNING:
+            return
+        if job.job_id in _cancel_flags or _has_cancel_requested(current):
+            job.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
+        elif transition_job(job.job_id, JobStatus.RUNNING, JobStatus.PENDING,
+                            fields={"progress": json.dumps(job.progress.to_list(), ensure_ascii=False)}):
+            job.status = JobStatus.PENDING
+
+
 def _job_timeout_seconds() -> float:
     """单任务超时（秒）；0 或未设置为不限制。阶段边界检查，阻塞调用内部无法中断。"""
     try:
@@ -656,6 +708,8 @@ def create_job(payload: dict) -> Job:
     # 单独落 job_labels 关联表。
     # 先归一化校验（保留名/超量/超长抛 LabelStoreError）再落库：
     # 否则 save 之后才失败会留下从未入队、列表可见的孤儿任务行
+    if _shutdown.is_set():
+        raise RuntimeError("服务正在退出；任务会在下次启动恢复")
     labels = normalize_label_names(payload.pop("labels", None) or [])
     job_id = uuid.uuid4().hex
     job = Job(job_id=job_id, payload=payload)
@@ -667,6 +721,8 @@ def create_job(payload: dict) -> Job:
 
 def enqueue_job(job: Job) -> None:
     """把任务交给事件循环后台执行（需在运行中的 asyncio 循环内调用）。"""
+    if _shutdown.is_set():
+        return
     task = asyncio.create_task(_run_job_task(job.job_id))
     # create_task 返回的 Task 若无强引用可能被 GC（官方文档明确警告）；完成后自动移除
     _background_tasks.add(task)
@@ -810,6 +866,11 @@ def _first_h1_title(job_dir: Path) -> str:
 
 
 def cancel_job(job_id: str) -> bool:
+    with _runtime_lock:
+        return _cancel_job_locked(job_id)
+
+
+def _cancel_job_locked(job_id: str) -> bool:
     """请求停止任务：pending 直接终止为 cancelled；running 设置停止标志，在阶段边界中止。
 
     运行中的任务无法强制中断阻塞调用（下载/转写），因此先记录停止请求并立即反馈给
@@ -1027,6 +1088,8 @@ def _make_cancel_check(job_id: str, start_mono: float, timeout: float) -> Callab
     def _check() -> None:
         if job_id in _cancel_flags:
             raise JobCancelledError(job_id, reason="cancelled by user", user_cancelled=True)
+        if _shutdown.is_set():
+            raise JobSuspendedError()
         if timeout and (time.monotonic() - start_mono) > timeout:
             raise JobCancelledError(
                 job_id, reason=f"timeout after {timeout:.0f}s", user_cancelled=False
@@ -1129,8 +1192,11 @@ def _user_facing_error(exc: Exception) -> str:
 
 
 def run_job(job: Job) -> None:
+    if _shutdown.is_set():
+        return
     with _acquire_semaphore():
-        _run_job_inner(job)
+        if not _shutdown.is_set():
+            _run_job_inner(job)
 
 
 def _run_job_inner(job: Job) -> None:
@@ -1241,6 +1307,7 @@ def _run_job_inner(job: Job) -> None:
                 language=getattr(settings, "subtitle_language", None) or "auto",
             ),
         )
+        _make_cancel_check(job.job_id, start_mono, timeout)()
         elapsed = time.perf_counter() - t0
 
         # 会话内标题闭环：事件未携带标题的少数路径（如元数据缺失）完成后用产物 summary
@@ -1274,6 +1341,9 @@ def _run_job_inner(job: Job) -> None:
             },
         )
         logger.info("job %s completed in %.2fs", job.job_id, elapsed)
+    except JobSuspendedError:
+        _suspend_job(job)
+        logger.info("job %s retained for restart", job.job_id)
     except JobCancelledError as exc:
         # CANCELLED/ERROR 终态事件由 mark_cancelled/mark_failed 统一推送，此处不重复
         if exc.user_cancelled:

@@ -1149,11 +1149,11 @@ def test_backfill_titles_from_outputs(tmp_path, monkeypatch) -> None:
 
     monkeypatch.chdir(tmp_path)
     url_job = web_tasks.create_job({"source_type": "url", "url": "https://example.test/a", "title": "https://example.test/a"})
-    url_job.status = "completed"
-    url_job.save()
+    url_job.mark_running()
+    url_job.mark_completed({})
     user_job = web_tasks.create_job({"source_type": "url", "url": "https://example.test/b", "title": "用户起的标题"})
-    user_job.status = "completed"
-    user_job.save()
+    user_job.mark_running()
+    user_job.mark_completed({})
 
     out = Path(web_tasks.output_base()) / url_job.job_id
     out.mkdir(parents=True)

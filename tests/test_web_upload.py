@@ -179,8 +179,8 @@ def _mark_terminal(job_id: str) -> None:
     from video_to_summary.web import tasks as web_tasks
 
     job = web_tasks.get_job(job_id)
-    job.status = JobStatus.COMPLETED
-    job.save()
+    job.mark_running()
+    job.mark_completed({})
 
 
 def test_delete_job_removes_managed_upload(tmp_path) -> None:
