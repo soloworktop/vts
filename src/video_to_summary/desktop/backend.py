@@ -48,7 +48,10 @@ async def _serve(connection, paths):
     from ..web.app import app, _static_dir
     from ..version import get_version
     from ..web.tasks import configure_runtime, begin_shutdown, wait_for_shutdown
-    configure_runtime()
+    from .media import local_source_factory
+    configure_runtime(local_source_factory=local_source_factory)
+    from .paths import binary_path
+    os.environ["PATH"] = str(__import__("pathlib").Path(binary_path("ffmpeg")).parent) + os.pathsep + os.environ.get("PATH", "")
     static = _static_dir()
     if not (static / "index.html").is_file() or not list((static / "assets").glob("*.js")):
         raise RuntimeError("桌面前端资源缺失；源码开发请先运行 pnpm build")

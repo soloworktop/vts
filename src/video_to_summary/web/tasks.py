@@ -1272,6 +1272,8 @@ def _run_job_inner(job: Job) -> None:
         t0 = time.perf_counter()
         start_mono = time.monotonic()
         timeout = _job_timeout_seconds()
+        if hasattr(source, "cancel_check"):
+            source.cancel_check = _make_cancel_check(job.job_id, start_mono, timeout)
         source_meta = getattr(source, "meta", None)
         # 单任务工作量指标：由事件侧捕获，完成后交给插件副作用（开源版无副作用）
         job_metrics: dict = {}
@@ -1326,6 +1328,7 @@ def _run_job_inner(job: Job) -> None:
             "segments": os.path.join(output_dir, f"{source_id}.segments.json"),
             "subtitle": os.path.join(output_dir, f"{source_id}.srt"),
         }
+        result_paths = {key: path for key, path in result_paths.items() if Path(path).is_file()}
         # 终态与 COMPLETED 事件由 mark_completed 在同一次落库中原子持久化
         # （elapsed 取值时点与此处调用时点一致），无需再单独 push/save
         if not job.mark_completed(result_paths, elapsed=elapsed):
@@ -1467,6 +1470,8 @@ def _build_source(settings: Any, job: Job) -> Any:
         audio_path = job.payload.get("audio_path") or job.payload.get("file_path")
         if not audio_path:
             raise ValueError("local source requires audio_path")
+        if _local_source_factory is not None:
+            return _local_source_factory(settings, job)
         return LocalAudioSource(
             Path(audio_path),
             title=job.payload.get("title"),

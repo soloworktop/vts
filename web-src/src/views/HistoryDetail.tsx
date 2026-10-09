@@ -19,7 +19,7 @@ import { computeStages, eventDetailSuffix, eventLabel, isKnownEvent, loggableEve
 import { isMarkdownPath, renderMarkdown } from "../lib/markdown";
 import { formatTime, friendlyError } from "../lib/format";
 import { forgetJob } from "../lib/recent";
-import { desktopApi, isDesktopApp, triggerAnchorDownload, registerExitGuard } from "../lib/desktop";
+import { desktopApi, isDesktopApp, triggerAnchorDownload, registerExitGuard, copyText } from "../lib/desktop";
 import { useAppStore } from "../store/useAppStore";
 import { useToast } from "../components/Toast";
 import { Stepper } from "../components/Stepper";
@@ -27,7 +27,7 @@ import { JobError } from "../components/JobError";
 import { TagEditor } from "../components/TagEditor";
 import { Modal } from "../components/Modal";
 
-type ProductKey = "summary" | "transcript" | "segments" | "subtitle" | "";
+type ProductKey = "summary" | "transcript" | "segments" | "subtitle" | "polished" | "";
 
 interface HistoryDetailProps {
   jobId: string;
@@ -564,6 +564,7 @@ export function HistoryDetail({ jobId }: HistoryDetailProps) {
             <details id="moreGroup" className="more-group">
               <summary>更多</summary>
               <div className="more-items">
+                {paths.polished && <button type="button" className="result-link more-item" data-key="polished" onClick={() => void (async () => { if (await exitEdit({ confirmDirty: true })) void loadProduct("polished"); })()}>润色稿</button>}
                 {paths.segments && (
                   <button
                     type="button"
@@ -624,6 +625,11 @@ export function HistoryDetail({ jobId }: HistoryDetailProps) {
             >
               编辑
             </button>
+            <button id="copyProductBtn" className="secondary" disabled={!productContent} onClick={() => void copyText(editing ? editDraft : productContent).then(() => showToast("已复制")).catch((e) => showToast(friendlyError(e, "复制失败"), { kind: "error" }))}>复制</button>
+            {isDesktopApp() && <>
+              <button id="openProductBtn" className="secondary" disabled={!productKey} onClick={() => void desktopApi()!.open_job_output(jobId, productKey).catch((e) => showToast(friendlyError(e, "打开失败"), { kind: "error" }))}>打开产物</button>
+              <button id="openOutputBtn" className="secondary" onClick={() => void desktopApi()!.open_job_output(jobId).catch((e) => showToast(friendlyError(e, "打开失败"), { kind: "error" }))}>输出目录</button>
+            </>}
             <div className="export-wrap">
               <button
                 id="exportProductBtn"
