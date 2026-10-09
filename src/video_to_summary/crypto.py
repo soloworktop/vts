@@ -1,10 +1,10 @@
-"""API Key 等敏感配置的 at-rest 加密（可选，基于 cryptography.Fernet 认证加密）。
+"""API Key 等敏感配置的 at-rest 加密（基于 cryptography.Fernet 认证加密）。
 
 设计：
 - 加密密钥来源：环境变量 ``VIDEO_TO_SUMMARY_ENC_KEY``（Fernet 密钥，base64 文本）；
   未设置时首次使用自动生成并保存到数据库同目录的 ``enc_key`` 文件（chmod 0o600，
   随 ``data/`` 一起被 .gitignore 排除）。
-- 未安装 ``cryptography`` 时降级为明文存储并记录 WARNING，保证无依赖环境可用。
+- 未安装 ``cryptography`` 时拒绝保存密钥，绝不降级为明文。
 - 密文带前缀 ``enc:v1:``；解密失败（密钥变更/数据损坏）时抛 ``SecretDecryptError``，
   由调用方降级（标记未配置 / 视为未登录），避免把密文当明文 Key 使用。
 - 密钥独立于数据库存放，即使 DB 被拷贝/误传，密钥不会随之泄露。
@@ -49,8 +49,7 @@ def _get_fernet():
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        logger.warning("cryptography not installed; API keys stored in plaintext")
-        return None
+        raise SecretDecryptError("cryptography 不可用；请安装 cryptography 后保存或读取 API Key")
 
     with _fernet_lock:
         if _fernet is not None:  # 双重检查：等锁期间可能已被其他线程初始化
@@ -83,8 +82,6 @@ def encrypt_secret(plain: str) -> str:
     if not plain:
         return plain
     fernet = _get_fernet()
-    if fernet is None:
-        return plain
     return _PREFIX + fernet.encrypt(plain.encode("utf-8")).decode("ascii")
 
 

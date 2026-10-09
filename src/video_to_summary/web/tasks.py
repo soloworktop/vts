@@ -300,12 +300,11 @@ class Job:
             return True
         return False
 
-    def mark_completed(self, result_paths: dict[str, str], elapsed: float | None = None) -> None:
+    def mark_completed(self, result_paths: dict[str, str], elapsed: float | None = None) -> bool:
         """任务完成终态：running → completed 原子转换，状态与终态事件**同一次落库**。
 
         elapsed 可选（旧调用点不传时仍只推 FINALIZED，行为不变）。
-        转换意外失败时回退盲写 save()：完成产物已在磁盘，绝不因状态竞争丢失
-        completed 终态（单进程下 expected 恒成立，此分支仅剩理论价值）。
+        竞争失败时放弃终态、索引及后续副作用。
         """
         events_payloads = [(JobEvent.FINALIZED, {"result_paths": result_paths})]
         if elapsed is not None:
@@ -325,20 +324,20 @@ class Job:
         )
         if not ok:
             logger.warning(
-                "job %s completed transition lost race (db status != %s), falling back to save",
+                "job %s completed transition lost race (db status != %s), write skipped",
                 self.job_id, self.status,
             )
+            return False
         self.status = JobStatus.COMPLETED
         self.result_paths = result_paths
         for event, payload in events_payloads:
             self.progress.push(event, payload)
-        if not ok:
-            self.save()
         # 全文检索索引（v8）：产物派生文本入 jobs_fts（先删后插，重试重跑安全）。
         # best-effort：索引失败只记日志，绝不影响任务完成链路
         from .fts_index import index_job_artifacts
 
         index_job_artifacts(self.job_id, result_paths)
+        return True
 
     def mark_cancelled(self, reason: str, *, expected_status: str | None = None) -> bool:
         """用户手动停止的终态（原子转换）；返回 False = 状态竞争失败，本次写入被放弃。
@@ -400,7 +399,7 @@ class Job:
         return ok
 
     def save(self) -> None:
-        """把当前状态落库到 jobs 表（Upsert）。"""
+        """插入新任务，或更新相同状态任务的非状态字段；状态推进走 transition_job。"""
         db.init_db()
         with db.get_conn() as conn:
             conn.execute(
@@ -410,7 +409,6 @@ class Job:
                         summary_edited_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(job_id) DO UPDATE SET
-                       status = excluded.status,
                        title = excluded.title,
                        source_type = excluded.source_type,
                        source = excluded.source,
@@ -421,7 +419,8 @@ class Job:
                        error = excluded.error,
                        progress = excluded.progress,
                        updated_at = excluded.updated_at,
-                       summary_edited_at = excluded.summary_edited_at""",
+                       summary_edited_at = excluded.summary_edited_at
+                   WHERE jobs.status = excluded.status""",
                 (
                     self.job_id,
                     self.status,
@@ -749,8 +748,9 @@ def resume_pending_jobs() -> None:
                 job.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
                 logger.info("job %s cancel was requested before restart, marked cancelled instead of resuming", job.job_id)
                 continue
+            if not transition_job(job.job_id, job.status, JobStatus.PENDING):
+                continue
             job.status = JobStatus.PENDING
-            job.save()
             _jobs[job.job_id] = job
             enqueue_job(job)
             logger.info("job %s resumed from previous run", job.job_id)
@@ -1261,7 +1261,8 @@ def _run_job_inner(job: Job) -> None:
         }
         # 终态与 COMPLETED 事件由 mark_completed 在同一次落库中原子持久化
         # （elapsed 取值时点与此处调用时点一致），无需再单独 push/save
-        job.mark_completed(result_paths, elapsed=elapsed)
+        if not job.mark_completed(result_paths, elapsed=elapsed):
+            return
         # 任务完成副作用（插件挂载点）：开源版无注册者 = 空操作；任何副作用异常
         # 都在 hooks 内被吞掉并记日志，绝不影响任务终态
         hooks.run_job_completed_side_effects(

@@ -121,3 +121,13 @@ def test_legacy_plaintext_passthrough_is_key_itself():
     assert crypto.decrypt_secret("sk-plain-legacy-key") == "sk-plain-legacy-key"
     assert crypto.decrypt_secret("") == ""
     assert crypto.is_encrypted("sk-plain-legacy-key") is False
+
+
+def test_missing_crypto_refuses_plaintext_storage():
+    import unittest.mock as mock
+    import pytest
+    crypto.reset()
+    with mock.patch.dict("sys.modules", {"cryptography": None, "cryptography.fernet": None}):
+        with pytest.raises(crypto.SecretDecryptError, match="cryptography"):
+            crypto.encrypt_secret("example-key")
+    crypto.reset()

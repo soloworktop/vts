@@ -120,25 +120,18 @@ def test_terminal_write_lost_race_does_not_clobber_retry(tasks_db):
     assert _db_status(job.job_id) == JobStatus.PENDING
 
 
-def test_mark_completed_lost_race_falls_back_to_save(tasks_db, monkeypatch):
-    """mark_completed 转换意外失败时回退盲写：完成产物已在磁盘，绝不丢 completed 终态。"""
+def test_mark_completed_lost_race_preserves_winner(tasks_db, monkeypatch):
     job = web_tasks.create_job({"source_type": "url", "url": "https://example.test/v"})
     job.mark_running()
-
-    original = web_tasks.transition_job
-
-    def losing_transition(job_id, expected, new, *, fields=None):
-        return False  # 强制所有转换失败（白盒：仅覆盖回退分支）
-
-    monkeypatch.setattr(web_tasks, "transition_job", losing_transition)
-    job.mark_completed({"summary": "/tmp/x.md"}, elapsed=1.0)
-    monkeypatch.setattr(web_tasks, "transition_job", original)
-
-    row = web_tasks.get_job(job.job_id)
-    assert row.status == JobStatus.COMPLETED
-    assert row.result_paths == {"summary": "/tmp/x.md"}
-    events = [e["event"] for e in row.progress.to_list()]
-    assert "finalized" in events and "completed" in events
+    assert web_tasks.transition_job(job.job_id, JobStatus.RUNNING, JobStatus.CANCELLED)
+    indexed = []
+    monkeypatch.setattr("video_to_summary.web.fts_index.index_job_artifacts", lambda *a: indexed.append(a))
+    assert job.mark_completed({"summary": "/tmp/x.md"}, elapsed=1.0) is False
+    assert _db_status(job.job_id) == JobStatus.CANCELLED
+    assert job.result_paths is None
+    assert not indexed
+    job.save()  # a stale non-state update must not revive or erase the winner
+    assert _db_status(job.job_id) == JobStatus.CANCELLED
 
 
 def test_double_run_same_job_single_claim(tasks_db):
