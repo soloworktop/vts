@@ -154,7 +154,9 @@ function DefaultsTab() {
   const onSave = () => {
     setStatus("保存中…");
     const payload: Partial<Settings> = {
-      // 以下键不再由 UI 管理（走内置默认），省略键，后端只更新提交的键
+      ...form,
+      user_agent: (form.user_agent || "").trim(),
+      cookies: (form.cookies || "").trim(),
       subtitle_preference: form.subtitle_preference ?? "auto",
       cookies_browser: form.cookies_browser ?? "",
       proxy: (form.proxy || "").trim(),
@@ -236,6 +238,13 @@ function DefaultsTab() {
           <p>浏览器 cookies、网络代理等高级配置，普通使用无需调整。</p>
         </summary>
         <div className="settings-group-body">
+          <label>User-Agent（留空使用站点下载器默认值）
+            <input id="defaultUserAgent" value={form.user_agent ?? ""} onChange={(e) => setForm((f) => ({ ...f, user_agent: e.target.value }))} />
+          </label>
+          <label>cookies 文件（优先于浏览器 cookies）
+            <input id="defaultCookiesFile" value={form.cookies ?? ""} onChange={(e) => setForm((f) => ({ ...f, cookies: e.target.value }))} />
+          </label>
+          {isDesktopApp() && <button id="pickCookiesFile" className="secondary" onClick={() => void desktopApi()!.pick_file("cookies").then((path) => { if (path) setForm((f) => ({ ...f, cookies: path })); }).catch((e) => setStatus(friendlyError(e, "选择失败")))}>选择 cookies 文件</button>}
           <label>
             浏览器 cookies（B 站字幕 / YouTube 等需登录内容）
             <select
@@ -287,6 +296,14 @@ function DefaultsTab() {
         </div>
       </details>
 
+      <details className="settings-group settings-group-collapsible">
+        <summary className="settings-group-head"><h3>处理偏好</h3></summary>
+        <div className="settings-group-body">
+          <label>字幕语言<input id="defaultSubtitleLanguage" value={form.subtitle_language ?? "auto"} onChange={(e) => setForm((f) => ({ ...f, subtitle_language: e.target.value }))} /></label>
+          <label>音频格式<select id="defaultAudioFormat" value={form.audio_format ?? "mp3"} onChange={(e) => setForm((f) => ({ ...f, audio_format: e.target.value }))}><option value="mp3">MP3</option><option value="wav">WAV</option></select></label>
+          <label>润色预设<input id="defaultPolishPreset" value={form.polish_preset ?? "default"} onChange={(e) => setForm((f) => ({ ...f, polish_preset: e.target.value }))} /></label>
+        </div>
+      </details>
       <div className="defaults-actions defaults-footer">
         <button id="saveDefaultsBtn" type="button" className="secondary" onClick={onSave}>
           保存默认配置
@@ -383,6 +400,7 @@ function LlmTab() {
         Key 以 Fernet 加密落库，界面只显示掩码。
       </p>
 
+      {isDesktopApp() && <p className="hint-brief">桌面配置与 CLI/Web 数据独立。历史 ZIP 不包含 API Key；请在此填写。显式导入仅读取桌面数据库目录的 .env 文件。</p>}
       <div className="llm-toolbar">
         <button id="llmImportEnvBtn" type="button" className="secondary" onClick={() => void onImportEnv()}>
           从 .env 导入

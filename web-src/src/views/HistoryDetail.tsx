@@ -76,7 +76,7 @@ export function HistoryDetail({ jobId }: HistoryDetailProps) {
     detail?.status === "completed" || detail?.status === "failed" || detail?.status === "cancelled";
   const summaryEditedAt = typeof detail?.summary_edited_at === "number" ? detail.summary_edited_at : null;
   const paths = detail?.result_paths || {};
-  const hasMore = !!(paths.segments || paths.subtitle);
+  const hasMore = !!(paths.segments || paths.subtitle || paths.polished);
   const hasProducts = !!(paths.summary || paths.transcript || hasMore);
 
   // ---- 产物加载 ----

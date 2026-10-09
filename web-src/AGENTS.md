@@ -19,3 +19,6 @@
    不得让新事件把页面渲染炸掉。
 5. **导出禁 Blob**：一律走带 `Content-Disposition` 的接口地址（WKWebView 下
    Blob 会被内联渲染不落盘）。
+
+6. 桌面启动先等待 `pywebviewready` 和内存会话；XHR、HEAD 与导出统一鉴权，禁止持久化会话 Token。
+7. 桌面退出经过编辑稿守卫及未完成任务确认；新增原生方法必须返回 Promise。

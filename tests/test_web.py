@@ -1205,7 +1205,7 @@ def test_settings_get_put_roundtrip() -> None:
     assert data["polish_transcript"] is False
     assert set(data) == {
         "summary_template", "audio_format", "polish_preset", "polish_transcript",
-        "subtitle_preference", "subtitle_language", "cookies_browser", "proxy",
+        "subtitle_preference", "subtitle_language", "cookies_browser", "proxy", "user_agent", "cookies",
     }
     res = client.put("/api/v1/settings", json={"polish_transcript": True, "audio_format": "wav"})
     assert res.status_code == 200
@@ -2273,3 +2273,19 @@ def test_cancel_running_job_persists_intent() -> None:
     with store_db.get_conn() as conn:
         row = conn.execute("SELECT progress FROM jobs WHERE job_id = ?", (job.job_id,)).fetchone()
     assert row is not None and "cancel_requested" in (row["progress"] or "")
+
+
+def test_settings_cookie_file_and_ua(tmp_path):
+    from video_to_summary.web.settings_store import job_defaults_payload
+    from video_to_summary.config import Settings
+    from video_to_summary.sources.url import _resolve_cookie_opts
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape HTTP Cookie File", encoding="utf-8")
+    response = client.put("/api/v1/settings", json={"cookies": str(cookies), "user_agent": " UA\r\n", "cookies_browser": "chrome"})
+    assert response.status_code == 200
+    assert response.json()["user_agent"] == "UA"
+    settings = Settings.from_mapping(job_defaults_payload())
+    assert _resolve_cookie_opts("https://example.test/", settings.cookies, settings.cookies_browser) == {"cookiefile": str(cookies)}
+    assert client.put("/api/v1/settings", json={"cookies": str(tmp_path / "missing")}).status_code == 400
+    client.put("/api/v1/settings", json={"cookies": ""})
+    assert Settings.from_mapping(job_defaults_payload()).cookies is None
