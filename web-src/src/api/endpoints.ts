@@ -1,3 +1,4 @@
+import { sessionHeaders } from "../lib/desktop";
 // ============ 端点函数：组件只 import 这里，不直接拼 URL ============
 import { API_BASE, ApiError, api, apiFetch, downloadUrl } from "./client";
 import type {
@@ -69,6 +70,7 @@ export function createJobWithUpload(file: File, opts: UploadJobOptions = {}): Pr
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_BASE}/jobs/upload`);
+    for (const [name, value] of Object.entries(sessionHeaders())) xhr.setRequestHeader(name, value);
     xhr.responseType = "json";
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && opts.onProgress) {

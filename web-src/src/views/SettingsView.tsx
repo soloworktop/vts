@@ -1,3 +1,4 @@
+import { apiResponse } from "../api/client";
 // ============ 设置视图：任务默认 / LLM 配置（BYOK）/ 总结模板 / 标签管理 ============
 import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -70,7 +71,7 @@ export function SettingsView() {
                   .catch(() => showToast("导出失败：请重试", { kind: "error" }));
               } else {
                 // 真实附件下载（禁 Blob）：HEAD 取文件名 → 触发 → toast
-                fetch(url)
+                apiResponse(url)
                   .then((res) => {
                     const name = (res.headers.get("content-disposition") || "").match(/filename="([^"]+)"/)?.[1] || "video-to-summary-logs.txt";
                     triggerAnchorDownload(url);

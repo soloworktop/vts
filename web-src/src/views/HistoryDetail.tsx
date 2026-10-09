@@ -1,3 +1,4 @@
+import { apiResponse } from "../api/client";
 // ============ 历史详情（右列）：产物浏览 / 编辑 / 导出 / 重试 / 删除 ============
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +19,7 @@ import { computeStages, eventDetailSuffix, eventLabel, isKnownEvent, loggableEve
 import { isMarkdownPath, renderMarkdown } from "../lib/markdown";
 import { formatTime, friendlyError } from "../lib/format";
 import { forgetJob } from "../lib/recent";
-import { desktopApi, isDesktopApp, triggerAnchorDownload } from "../lib/desktop";
+import { desktopApi, isDesktopApp, triggerAnchorDownload, registerExitGuard } from "../lib/desktop";
 import { useAppStore } from "../store/useAppStore";
 import { useToast } from "../components/Toast";
 import { Stepper } from "../components/Stepper";
@@ -183,6 +184,8 @@ export function HistoryDetail({ jobId }: HistoryDetailProps) {
     [editing, dirty, askDirty, saveSummary],
   );
 
+  useEffect(() => registerExitGuard(() => exitEdit({ confirmDirty: true })), [exitEdit]);
+
   const enterEdit = useCallback(async () => {
     if (!detail || detail.status !== "completed") return;
     if (productKey !== "summary" || !productContent) return;
@@ -248,7 +251,7 @@ export function HistoryDetail({ jobId }: HistoryDetailProps) {
       const url = jobExportUrl(detail.job_id, productPath, format);
       const trigger = () => triggerAnchorDownload(url);
       if (isDesktopApp() && desktopApi()?.export_product) {
-        fetch(url, { method: "HEAD" })
+        apiResponse(url, { method: "HEAD" })
           .then((res) => {
             const name = res.ok ? parseDownloadName(res.headers.get("content-disposition") || "") : "";
             return desktopApi()!.export_product!(url, name || "export");
@@ -287,7 +290,7 @@ export function HistoryDetail({ jobId }: HistoryDetailProps) {
         return;
       }
       // 浏览器：先轻量 HEAD 取服务端生成的文件名，再触发下载，最后 toast 告知
-      fetch(url, { method: "HEAD" })
+      apiResponse(url, { method: "HEAD" })
         .then((res) => {
           let name = "";
           if (res.ok) name = parseDownloadName(res.headers.get("content-disposition") || "");

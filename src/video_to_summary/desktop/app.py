@@ -22,8 +22,23 @@ def main():
             args.desktop_smoke.write_text(json.dumps({"ok": True, "version": backend.version}), encoding="utf-8")
             return
         import webview
-        window = webview.create_window("VTS", backend.origin, width=1200, height=800, min_size=(850, 600))
+        from .bridge import Bridge
+        approved_exit = threading.Event()
+        def exit_window():
+            approved_exit.set()
+            window.destroy()
+        bridge = Bridge(backend, exit_window)
+        window = webview.create_window("VTS", backend.origin, js_api=bridge, width=1200, height=800, min_size=(850, 600))
+        bridge._window = window
         def closing():
+            if approved_exit.is_set():
+                return True
+            try:
+                if window.evaluate_js("Boolean(window.__APP_READY__)"):
+                    window.evaluate_js("window.dispatchEvent(new CustomEvent(\"vts:desktop-close\"))")
+                    return False
+            except Exception:
+                pass
             if window.create_confirmation_dialog("退出 VTS", "退出后未完成任务将在下次启动恢复。确认退出？"):
                 return True
             return False
