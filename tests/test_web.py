@@ -2156,7 +2156,7 @@ def test_user_facing_error_model_no_access_guides_llm_settings() -> None:
 
     raw = (
         "Error code: 403 - {'error': {'code': '', 'message': 'This token has "
-        "no access to model stepaudio-2.5-asr (request id: "
+        "no access to model example-asr-model (request id: "
         "202609220830282872512108268d9d6PWc1Z6IT)', 'type': 'new_api_error'}}"
     )
     msg = _user_facing_error(RuntimeError(raw))
