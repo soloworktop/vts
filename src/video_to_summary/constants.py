@@ -62,3 +62,9 @@ class SubtitlePreference:
 class SourceType:
     URL = "url"
     LOCAL = "local"
+
+
+class DesktopMessage:
+    READY = "ready"
+    STOP = "stop"
+    ERROR = "error"

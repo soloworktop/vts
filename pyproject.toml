@@ -49,6 +49,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+desktop = ["pywebview==6.2.1"]
 # requests 供 tests/e2e 顶层 import：必须在 dev 里，否则只装 [dev] 时
 # `python -m pytest -q`（testpaths 含 tests/e2e）收集期即 ModuleNotFoundError
 dev = [
@@ -64,6 +65,7 @@ e2e = [
 
 [project.scripts]
 vts = "video_to_summary.main:main"
+vts-desktop = "video_to_summary.desktop.app:main"
 
 [project.urls]
 Homepage = "https://github.com/soloworktop/vts"

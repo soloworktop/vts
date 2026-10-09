@@ -232,3 +232,7 @@ class Settings:
                         "VTS_COOKIES_FILE=/data/cookies.txt",
                         cookies_file,
                     )
+
+# Desktop lifecycle defaults (seconds).
+DESKTOP_START_TIMEOUT = 30
+DESKTOP_STOP_TIMEOUT = 15
