@@ -62,12 +62,16 @@ async def _serve(connection, paths, bootstrap_nonce, cleanup_probe=False):
     from ..web.tasks import configure_runtime, begin_shutdown, wait_for_shutdown
     from .media import local_source_factory
     configure_runtime(local_source_factory=local_source_factory)
-    from .paths import binary_path
+    from .paths import binary_path, resource_root
     import sys
     if getattr(sys, "frozen", False):
         from pathlib import Path
         os.environ["PATH"] = str(Path(binary_path("ffmpeg")).parent) + os.pathsep + os.environ.get("PATH", "")
         binary_path("ffprobe")
+        from importlib.metadata import version
+        metadata = json.loads((resource_root() / "notices/version.json").read_text(encoding="utf-8"))
+        if version("vts") != metadata["package"] or get_version() != metadata["display"]:
+            raise RuntimeError("安装包版本元数据不一致，请重新安装 VTS")
     static = _static_dir()
     if not (static / "index.html").is_file() or not list((static / "assets").glob("*.js")):
         raise RuntimeError("桌面前端资源缺失；源码开发请先运行 pnpm build")
@@ -113,7 +117,7 @@ async def _serve(connection, paths, bootstrap_nonce, cleanup_probe=False):
                 raise RuntimeError("Media child cleanup probe exited before shutdown")
             probe_pid = child.pid
         connection.send({"event": DesktopMessage.READY, "port": sock.getsockname()[1], "version": get_version(),
-                         "checks": ["cryptography", "sqlite-fts5"], "media_probe_pid": probe_pid})
+                         "checks": ["cryptography", "sqlite-fts5"] + (["package-version"] if getattr(sys, "frozen", False) else []), "media_probe_pid": probe_pid})
         while not serving.done():
             if connection.poll():
                 try:

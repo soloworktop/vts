@@ -169,6 +169,15 @@ def notices(binary_directory):
     (output / "python-distributions.json").write_text(json.dumps(distributions, indent=2) + "\n")
 
 
+def ensure_package_version(info):
+    """Refresh editable metadata without installing unlocked dependencies."""
+    if importlib.metadata.version("vts") != info["package"]:
+        env = dict(os.environ, SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VTS=info["package"])
+        run([sys.executable, "-m", "pip", "install", "--no-deps", "--no-build-isolation", "--editable", ROOT], env=env)
+    if importlib.metadata.version("vts") != info["package"]:
+        raise RuntimeError("Installed VTS metadata differs from the build version")
+
+
 def windows_version(info):
     numbers = tuple(map(int, info["windows"].split(".")))
     (BUILD / "windows-version.txt").write_text(f'''VSVersionInfo(ffi=FixedFileInfo(filevers={numbers!r}, prodvers={numbers!r}, mask=0x3f, flags=0, OS=0x40004, fileType=0x1, subtype=0, date=(0,0)), kids=[StringFileInfo([StringTable('040904B0', [StringStruct('FileDescription', 'VTS'), StringStruct('ProductName', 'VTS'), StringStruct('FileVersion', '{info["display"]}'), StringStruct('ProductVersion', '{info["display"]}')])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])])''', encoding="utf-8")
@@ -197,6 +206,7 @@ def main():
             shutil.copy2(item, destination / item.name)
     if args.binaries_only:
         return
+    ensure_package_version(info)
     notices(source)
     windows_version(info)
     run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--distpath", DIST, "--workpath", BUILD / "freeze", PACKAGING / "vts.spec"])

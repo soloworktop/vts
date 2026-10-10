@@ -80,3 +80,24 @@ def test_windows_system_crypto_dependency_only(tmp_path, monkeypatch, extra_dll)
     else:
         with pytest.raises(RuntimeError, match="Non-system FFmpeg DLL"):
             build.verify_binaries(tmp_path, "windows-x64")
+
+
+def test_freeze_refreshes_stale_metadata_without_new_dependencies(monkeypatch):
+    import scripts.build_desktop as build
+    versions = iter(["0.1.0", "0.4.0rc2"])
+    monkeypatch.setattr(build.importlib.metadata, "version", lambda _: next(versions))
+    calls = []
+    monkeypatch.setattr(build, "run", lambda command, **kwargs: calls.append((command, kwargs)))
+    build.ensure_package_version({"package": "0.4.0rc2"})
+    command, kwargs = calls[0]
+    assert "--no-deps" in command and "--no-build-isolation" in command
+    assert kwargs["env"]["SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VTS"] == "0.4.0rc2"
+    assert command[-1] == build.ROOT
+
+
+def test_freeze_rejects_metadata_that_cannot_be_refreshed(monkeypatch):
+    import scripts.build_desktop as build
+    monkeypatch.setattr(build.importlib.metadata, "version", lambda _: "0.1.0")
+    monkeypatch.setattr(build, "run", lambda *a, **kw: None)
+    with pytest.raises(RuntimeError, match="metadata differs"):
+        build.ensure_package_version({"package": "0.4.0"})
