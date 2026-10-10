@@ -60,6 +60,13 @@ class ProcessTree:
                     os.killpg(self.process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                # macOS may reject signalling a group whose leader already exited.
+                # A live backend must still surface a failed group cleanup.
+                if self.process.is_alive():
+                    self.process.kill()
+                    self.process.join(timeout=2)
+                    raise
         if self.process.is_alive():
             self.process.kill()
         self.process.join(timeout=2)

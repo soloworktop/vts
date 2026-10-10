@@ -96,3 +96,57 @@ def test_desktop_does_not_inherit_model_secrets(monkeypatch):
     assert not any(key.startswith(("SUMMARY_", "ASR_", "OPENAI_", "LLM_", "POLISH_")) for key in os.environ)
     assert os.environ["VIDEO_TO_SUMMARY_DB"] == "explicit.db"
     assert os.environ["VTS_USER_AGENT"] == "explicit-agent"
+
+
+def test_process_tree_ignores_macos_group_permission_after_backend_exit(monkeypatch):
+    import sys
+    import pytest
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups are unavailable on Windows")
+    from video_to_summary.desktop import process_control
+
+    class ExitedProcess:
+        pid = 12345
+        def is_alive(self):
+            return False
+        def join(self, timeout):
+            assert timeout == 2
+
+    def deny_group_signal(group, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(process_control.os, "killpg", deny_group_signal)
+    tree = process_control.ProcessTree(ExitedProcess())
+    tree.group = 12345
+    tree.close()
+
+
+def test_process_tree_reports_group_permission_while_backend_alive(monkeypatch):
+    import sys
+    import pytest
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups are unavailable on Windows")
+    from video_to_summary.desktop import process_control
+
+    class LiveProcess:
+        pid = 12345
+        killed = False
+        def is_alive(self):
+            return not self.killed
+        def kill(self):
+            self.killed = True
+        def join(self, timeout):
+            assert timeout == 2
+
+    def deny_group_signal(group, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(process_control.os, "killpg", deny_group_signal)
+    process = LiveProcess()
+    tree = process_control.ProcessTree(process)
+    tree.group = 12345
+    with pytest.raises(PermissionError):
+        tree.close()
+    assert process.killed
