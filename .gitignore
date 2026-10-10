@@ -54,3 +54,6 @@ src/video_to_summary/_scm_version.py
 .desktop-cache/
 desktop-dist/
 /web-src/node_modules
+
+# Isolated native CI build interpreter
+.desktop-venv/

@@ -141,6 +141,16 @@ jobs:
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: "11.8.0"
+      - name: Create isolated Python environment
+        run: |
+          python -m venv .desktop-venv
+          python - <<'PYCODE'
+          import os
+          from pathlib import Path
+          scripts = Path('.desktop-venv') / ('Scripts' if os.name == 'nt' else 'bin')
+          with open(os.environ['GITHUB_PATH'], 'a') as output:
+              print(scripts.resolve(), file=output)
+          PYCODE
       - name: Install locked Python dependencies
         run: |
           python scripts/install_desktop_deps.py "${{ matrix.lock }}"
@@ -152,7 +162,7 @@ jobs:
       - name: Check native architecture
         env:
           TARGET: ${{ matrix.target }}
-        run: python -c "import os; from scripts.build_desktop import target_platform; assert target_platform() == os.environ['TARGET']"
+        run: python -c "import os, sys; from scripts.build_desktop import target_platform; assert sys.prefix != sys.base_prefix; assert target_platform() == os.environ['TARGET']"
       - name: Set up Windows native compiler
         id: msys2
         if: runner.os == 'Windows'
