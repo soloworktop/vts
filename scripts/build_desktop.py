@@ -59,6 +59,10 @@ def fetch_verified(source, cache):
     return path
 
 
+def msys2_root():
+    return Path(os.environ.get("VTS_MSYS2_ROOT") or "C:/msys64")
+
+
 def verify_binaries(directory, target):
     suffix = ".exe" if target == "windows-x64" else ""
     details = {}
@@ -79,7 +83,7 @@ def verify_binaries(directory, target):
                 if not library.startswith(("/usr/lib/", "/System/Library/")):
                     raise RuntimeError("Non-system FFmpeg dependency: " + library)
         else:
-            dependencies = subprocess.check_output(["C:/msys64/mingw64/bin/objdump.exe", "-p", str(binary)], text=True)
+            dependencies = subprocess.check_output([str(msys2_root() / "mingw64/bin/objdump.exe"), "-p", str(binary)], text=True)
             allowed = {"kernel32.dll", "msvcrt.dll", "advapi32.dll", "ws2_32.dll", "secur32.dll", "bcrypt.dll", "user32.dll", "ole32.dll", "shell32.dll", "psapi.dll", "ntdll.dll", "crypt32.dll", "gdi32.dll", "winmm.dll", "shlwapi.dll"}
             if "pei-x86-64" not in dependencies:
                 raise RuntimeError("FFmpeg is not Windows x64")
@@ -111,7 +115,7 @@ def build_ffmpeg(target):
     destination.mkdir(parents=True, exist_ok=True)
     command = [str(recipe), str(sources), str(destination), target]
     if target == "windows-x64":
-        command = ["C:/msys64/usr/bin/bash.exe", "-l", *[v.replace("\\", "/") for v in command]]
+        command = [str(msys2_root() / "usr/bin/bash.exe"), "-l", *[v.replace("\\", "/") for v in command]]
     else:
         command = ["bash", *command]
     env = dict(os.environ)

@@ -154,6 +154,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: python -c "import os; from scripts.build_desktop import target_platform; assert target_platform() == os.environ['TARGET']"
       - name: Set up Windows native compiler
+        id: msys2
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
         with:
@@ -164,6 +165,16 @@ jobs:
         with:
           path: .desktop-cache
           key: desktop-${{ runner.os }}-${{ runner.arch }}-py312-${{ hashFiles('packaging/desktop/binaries.json', 'packaging/desktop/build_ffmpeg.sh', 'packaging/desktop/requirements-*.lock') }}
+      - name: Use the compiler installed by the Action
+        if: runner.os == 'Windows'
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          python - <<'PYCODE'
+          import os
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              print('VTS_MSYS2_ROOT=' + os.environ['MSYS2_ROOT'], file=output)
+          PYCODE
       - name: Desktop regression and compilation checks
         run: |
           python -m compileall -q src/video_to_summary/desktop scripts/build_desktop.py scripts/desktop_smoke.py
@@ -179,6 +190,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-diagnostics-${{ matrix.target }}
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: ignore
           path: |

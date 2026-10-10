@@ -82,6 +82,8 @@ cd ..
 ```
 
 Windows 构建需 MSYS2 的 MINGW64 gcc、pkgconf、make、tar、nasm，以及 Inno Setup 6。
+本地默认 MSYS2 为 `C:/msys64`，可用 `VTS_MSYS2_ROOT` 指定安装根目录；CI 使用 Action
+返回的实际路径。
 macOS 构建需 Xcode Command Line Tools。正式包使用干净检出和已有的同源码 Tag：
 `python scripts/build_desktop.py --tag vMAJOR.MINOR.PATCH --installer`。
 开发构建带 SCM 开发版本；不应作为正式 Release 发布。默认使用平台图标。
@@ -142,8 +144,8 @@ PR、完成双平台 CI 和干净机器首次安装验收。
 
 本机 macOS arm64 已通过 `.app` 和 DMG 挂载复制后的真实 WKWebView、React 初始化、
 原生桥/剪贴板、Fernet、SQLite FTS5、health/版本/JS/CSS/手册、FFmpeg 音频转换及退出
-回收检查。开发 DMG 约 55 MiB；带 FFmpeg 缓存的冻结加 DMG 约 51 秒，冷编译耗时
-需独立测量。`build/desktop/metrics.json` 按各产物记录字节数和本次总构建时长。
+回收检查。开发 DMG 约 55 MiB；带 FFmpeg 缓存的冻结加 DMG 约 51 秒，首轮 macOS CI 冷构建（FFmpeg 编译加冻结）为 275 秒，
+两者构建范围不同。`build/desktop/metrics.json` 按各产物记录字节数和本次总构建时长。
 
 Windows 原生冻结、EXE 安装卸载、WebView2 和进程回收必须由 Windows CI/机器验证；
 干净 Windows 11 与 macOS 14+ 下载首开、SmartScreen/Gatekeeper 的人工验收仍需完成。

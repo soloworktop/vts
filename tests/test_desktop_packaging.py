@@ -52,3 +52,12 @@ def test_freezing_has_explicit_resources_and_hashed_locks():
         assert "pyinstaller==6.22.3" in lock and "pywebview==6.2.1" in lock
         assert "cryptography==50.0.2" in lock
         assert not re.search(r"^\w+[<>=]([^=]|$)", lock, re.M)
+
+
+def test_compiler_location_uses_actual_environment(monkeypatch, tmp_path):
+    from scripts.build_desktop import msys2_root
+    custom = tmp_path / "Action compiler location"
+    monkeypatch.setenv("VTS_MSYS2_ROOT", str(custom))
+    assert msys2_root() == custom
+    monkeypatch.delenv("VTS_MSYS2_ROOT")
+    assert msys2_root().as_posix() == "C:/msys64"
