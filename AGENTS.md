@@ -16,6 +16,7 @@ src/video_to_summary/            import 包名（发行名是 vts，见 README�
 ├─ summarizers/ polishers/       摘要与文本优化
 ├─ db.py crypto.py utils.py      存储 / 加密 / 公共工具
 ├─ downloader.py log_export.py   时长探测 / 脱敏诊断日志
+├─ desktop/                      pywebview 窗口、受控后端、原生桥与媒体准备
 └─ web/                          FastAPI 服务
    ├─ app.py                    全部 HTTP 接口
    ├─ tasks.py                  任务状态机（并发/恢复/取消/重试/删除）
@@ -176,3 +177,20 @@ VTS_LIVE_E2E=1 bash scripts/e2e.sh live  # 真实边界端到端（真实下载/
   时与 Host 同源；产物读取有路径逃逸防护（详见 README「HTTP API」）
 - 需要登录态的站点内容由用户自行提供 cookies（CLI `--cookies` / 浏览器 cookies /
   `VTS_COOKIES_FILE`），仅限个人使用，遵守平台协议
+
+## 桌面工程约定
+
+- `desktop/__main__.py` 在业务导入前执行 `freeze_support`；后端只通过 spawn 启动一个
+  uvicorn/scheduler，绑定实际 `127.0.0.1:0` socket 并以 IPC 返回端口。
+- 路径仍经 DB 解析器，桌面用 `use_user_data=True` 绕过源码检出；默认放到用户数据目录
+  的 `desktop/`，显式环境覆盖保留。模型 shell 配置不继承，不自动导入开发 `.env`。
+- Python 内部任务接口为 `configure_runtime` / `begin_shutdown` / `wait_for_shutdown`；
+  退出中断与用户取消区分，CAS 恢复 pending，取消/终态永不复活。停机最长 15 秒，
+  Windows Job Object、macOS 进程组与 IPC 断开清理负责子进程回收。
+- 原生桥仅可信根页面 + 调用证明可用；Token 只驻内存、不进 URL/存储/日志。导出只允许
+  同后端白名单端点，禁重定向；产物打开必须来自真实任务记录且位于输出目录。
+- 本地媒体在任务内准备 MP3/WAV，原文件不修改。缓存原子写；不引入本地模型或自动分片。
+- Windows x64 / macOS arm64 原生冻结与 WebView smoke 是发布门禁。平台源码、哈希锁、
+  固定 FFmpeg 源/配方及许可位于 `packaging/desktop/`；缺来源/许可即阻断。
+- 版本唯一来自正式 Tag；生成版本文件不提交。发布只有附件全部核验后才公开，禁止覆盖
+  不同内容的公开附件。更多操作见 `docs/desktop.md`。

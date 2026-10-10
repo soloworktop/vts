@@ -52,6 +52,58 @@ class JobCancelledError(BaseException):
         self.user_cancelled = user_cancelled
 
 
+class JobSuspendedError(BaseException):
+    """Desktop shutdown, distinct from user cancellation and business failure."""
+
+
+_shutdown = threading.Event()
+_runtime_lock = threading.RLock()
+_local_source_factory = None
+
+
+def configure_runtime(local_source_factory=None):
+    """Configure before startup recovery; normal Web/CLI behavior remains default."""
+    global _local_source_factory
+    _local_source_factory = local_source_factory
+    _shutdown.clear()
+
+
+def begin_shutdown(preserve_pending=True):
+    """Stop admission and interrupt running work; preserve queued records by default."""
+    with _runtime_lock:
+        _shutdown.set()
+        if not preserve_pending:
+            for job in list(_jobs.values()):
+                cancel_job(job.job_id)
+
+
+async def wait_for_shutdown(timeout):
+    """Wait without cancelling workers that still need to persist their final state."""
+    global _job_executor
+    pending = set(_background_tasks)
+    if pending:
+        _, unfinished = await asyncio.wait(pending, timeout=timeout)
+    else:
+        unfinished = set()
+    with _executor_lock:
+        if _job_executor is not None:
+            _job_executor.shutdown(wait=False, cancel_futures=True)
+            _job_executor = None
+    return not unfinished
+
+
+def _suspend_job(job):
+    with _runtime_lock:
+        current = get_job(job.job_id, refresh=True)
+        if current is None or current.status != JobStatus.RUNNING:
+            return
+        if job.job_id in _cancel_flags or _has_cancel_requested(current):
+            job.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
+        elif transition_job(job.job_id, JobStatus.RUNNING, JobStatus.PENDING,
+                            fields={"progress": json.dumps(job.progress.to_list(), ensure_ascii=False)}):
+            job.status = JobStatus.PENDING
+
+
 def _job_timeout_seconds() -> float:
     """单任务超时（秒）；0 或未设置为不限制。阶段边界检查，阻塞调用内部无法中断。"""
     try:
@@ -300,12 +352,19 @@ class Job:
             return True
         return False
 
-    def mark_completed(self, result_paths: dict[str, str], elapsed: float | None = None) -> None:
+    def mark_completed(self, result_paths: dict[str, str], elapsed: float | None = None) -> bool:
+        with _runtime_lock:
+            current = get_job(self.job_id, refresh=True)
+            if current is not None and current.status == JobStatus.RUNNING and _has_cancel_requested(current):
+                self.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
+                return False
+            return self._mark_completed_locked(result_paths, elapsed)
+
+    def _mark_completed_locked(self, result_paths: dict[str, str], elapsed: float | None = None) -> bool:
         """任务完成终态：running → completed 原子转换，状态与终态事件**同一次落库**。
 
         elapsed 可选（旧调用点不传时仍只推 FINALIZED，行为不变）。
-        转换意外失败时回退盲写 save()：完成产物已在磁盘，绝不因状态竞争丢失
-        completed 终态（单进程下 expected 恒成立，此分支仅剩理论价值）。
+        竞争失败时放弃终态、索引及后续副作用。
         """
         events_payloads = [(JobEvent.FINALIZED, {"result_paths": result_paths})]
         if elapsed is not None:
@@ -325,20 +384,20 @@ class Job:
         )
         if not ok:
             logger.warning(
-                "job %s completed transition lost race (db status != %s), falling back to save",
+                "job %s completed transition lost race (db status != %s), write skipped",
                 self.job_id, self.status,
             )
+            return False
         self.status = JobStatus.COMPLETED
         self.result_paths = result_paths
         for event, payload in events_payloads:
             self.progress.push(event, payload)
-        if not ok:
-            self.save()
         # 全文检索索引（v8）：产物派生文本入 jobs_fts（先删后插，重试重跑安全）。
         # best-effort：索引失败只记日志，绝不影响任务完成链路
         from .fts_index import index_job_artifacts
 
         index_job_artifacts(self.job_id, result_paths)
+        return True
 
     def mark_cancelled(self, reason: str, *, expected_status: str | None = None) -> bool:
         """用户手动停止的终态（原子转换）；返回 False = 状态竞争失败，本次写入被放弃。
@@ -400,7 +459,7 @@ class Job:
         return ok
 
     def save(self) -> None:
-        """把当前状态落库到 jobs 表（Upsert）。"""
+        """插入新任务，或更新相同状态任务的非状态字段；状态推进走 transition_job。"""
         db.init_db()
         with db.get_conn() as conn:
             conn.execute(
@@ -410,7 +469,6 @@ class Job:
                         summary_edited_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(job_id) DO UPDATE SET
-                       status = excluded.status,
                        title = excluded.title,
                        source_type = excluded.source_type,
                        source = excluded.source,
@@ -421,7 +479,8 @@ class Job:
                        error = excluded.error,
                        progress = excluded.progress,
                        updated_at = excluded.updated_at,
-                       summary_edited_at = excluded.summary_edited_at""",
+                       summary_edited_at = excluded.summary_edited_at
+                   WHERE jobs.status = excluded.status""",
                 (
                     self.job_id,
                     self.status,
@@ -657,6 +716,8 @@ def create_job(payload: dict) -> Job:
     # 单独落 job_labels 关联表。
     # 先归一化校验（保留名/超量/超长抛 LabelStoreError）再落库：
     # 否则 save 之后才失败会留下从未入队、列表可见的孤儿任务行
+    if _shutdown.is_set():
+        raise RuntimeError("服务正在退出；任务会在下次启动恢复")
     labels = normalize_label_names(payload.pop("labels", None) or [])
     job_id = uuid.uuid4().hex
     job = Job(job_id=job_id, payload=payload)
@@ -668,6 +729,8 @@ def create_job(payload: dict) -> Job:
 
 def enqueue_job(job: Job) -> None:
     """把任务交给事件循环后台执行（需在运行中的 asyncio 循环内调用）。"""
+    if _shutdown.is_set():
+        return
     task = asyncio.create_task(_run_job_task(job.job_id))
     # create_task 返回的 Task 若无强引用可能被 GC（官方文档明确警告）；完成后自动移除
     _background_tasks.add(task)
@@ -749,8 +812,9 @@ def resume_pending_jobs() -> None:
                 job.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
                 logger.info("job %s cancel was requested before restart, marked cancelled instead of resuming", job.job_id)
                 continue
+            if not transition_job(job.job_id, job.status, JobStatus.PENDING):
+                continue
             job.status = JobStatus.PENDING
-            job.save()
             _jobs[job.job_id] = job
             enqueue_job(job)
             logger.info("job %s resumed from previous run", job.job_id)
@@ -810,6 +874,11 @@ def _first_h1_title(job_dir: Path) -> str:
 
 
 def cancel_job(job_id: str) -> bool:
+    with _runtime_lock:
+        return _cancel_job_locked(job_id)
+
+
+def _cancel_job_locked(job_id: str) -> bool:
     """请求停止任务：pending 直接终止为 cancelled；running 设置停止标志，在阶段边界中止。
 
     运行中的任务无法强制中断阻塞调用（下载/转写），因此先记录停止请求并立即反馈给
@@ -1027,6 +1096,8 @@ def _make_cancel_check(job_id: str, start_mono: float, timeout: float) -> Callab
     def _check() -> None:
         if job_id in _cancel_flags:
             raise JobCancelledError(job_id, reason="cancelled by user", user_cancelled=True)
+        if _shutdown.is_set():
+            raise JobSuspendedError()
         if timeout and (time.monotonic() - start_mono) > timeout:
             raise JobCancelledError(
                 job_id, reason=f"timeout after {timeout:.0f}s", user_cancelled=False
@@ -1063,6 +1134,21 @@ _AUTH_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 上游「模型无权限」类错误特征：OpenAI 兼容网关（含 one-api/new-api 系）在 token
+# 无权调用该模型时返回 HTTP 403 + "no access to model ..."，模型名写错时是
+# "does not exist or you do not have access"。这是用户可自行解决的配置问题
+# （改模型名/换端点/调 token 权限），与下载阶段的 403/404（视频不可访问）是两回事，
+# 必须分开归类——否则转写/摘要失败会被误报成「视频不存在或不可访问」。
+_MODEL_ACCESS_RE = re.compile(
+    r"(no access to (?:model|deployment)"
+    r"|not have access to (?:the |this )?model"
+    r"|does not exist or you do not have access"
+    r"|model.{0,30}not found"
+    r"|无可用渠道"
+    r"|无权访问.{0,6}模型)",
+    re.IGNORECASE,
+)
+
 # 站点风控/限流类错误特征：412 = B 站边缘 WAF 按 UA×IP 信誉对 /video/ HTML 页发起挑战
 # （换成非浏览器 UA 即恢复）；429 = 平台限流（YouTube 自动字幕匿名访问被定点限流等）。
 # 这类错误必须给出可直接行动的解法（自定义 UA / 登录 cookies / 代理），
@@ -1082,7 +1168,8 @@ def _user_facing_error(exc: Exception) -> str:
 
     开源版是 BYOK：Key / 接入地址 / 模型名全在用户手里，因此认证类错误不再是
     「联系维护人员」，而是引导用户去「设置 → LLM 配置」自查（这是默认路径，不是
-    边缘场景）。站点风控类错误（412/429）同样给可行动解法（自定义 UA / cookies /
+    边缘场景）。模型无权限类错误（网关 403「token 无该模型权限」等）同理。
+    站点风控类错误（412/429）同样给可行动解法（自定义 UA / cookies /
     代理），不暴露上游内部实现。其余错误（链接不可访问、字幕缺失等用户可行动的
     问题）原样保留，完整异常仍只进日志（logger.exception）。
     """
@@ -1092,6 +1179,12 @@ def _user_facing_error(exc: Exception) -> str:
             "LLM 调用被拒绝（认证失败）：请在「设置 → LLM 配置」检查 API Key、"
             "接入地址（base_url）与模型名是否填写正确并已保存；若使用自建/第三方"
             "兼容端点，请确认其支持所用模型。也可在「设置 → 导出日志」导出诊断日志排查。"
+        )
+    if _MODEL_ACCESS_RE.search(text):
+        return (
+            "LLM/转写调用被拒绝（令牌无权访问该模型）：请在「设置 → LLM 配置」"
+            "检查模型名是否拼写正确、所配 API Key/令牌是否已开通该模型权限；"
+            "或更换为该端点已支持的模型后重试。也可在「设置 → 导出日志」导出诊断日志排查。"
         )
     if _HTTP_BLOCK_RE.search(text):
         return (
@@ -1107,8 +1200,11 @@ def _user_facing_error(exc: Exception) -> str:
 
 
 def run_job(job: Job) -> None:
+    if _shutdown.is_set():
+        return
     with _acquire_semaphore():
-        _run_job_inner(job)
+        if not _shutdown.is_set():
+            _run_job_inner(job)
 
 
 def _run_job_inner(job: Job) -> None:
@@ -1184,6 +1280,8 @@ def _run_job_inner(job: Job) -> None:
         t0 = time.perf_counter()
         start_mono = time.monotonic()
         timeout = _job_timeout_seconds()
+        if hasattr(source, "cancel_check"):
+            source.cancel_check = _make_cancel_check(job.job_id, start_mono, timeout)
         source_meta = getattr(source, "meta", None)
         # 单任务工作量指标：由事件侧捕获，完成后交给插件副作用（开源版无副作用）
         job_metrics: dict = {}
@@ -1219,6 +1317,7 @@ def _run_job_inner(job: Job) -> None:
                 language=getattr(settings, "subtitle_language", None) or "auto",
             ),
         )
+        _make_cancel_check(job.job_id, start_mono, timeout)()
         elapsed = time.perf_counter() - t0
 
         # 会话内标题闭环：事件未携带标题的少数路径（如元数据缺失）完成后用产物 summary
@@ -1237,9 +1336,11 @@ def _run_job_inner(job: Job) -> None:
             "segments": os.path.join(output_dir, f"{source_id}.segments.json"),
             "subtitle": os.path.join(output_dir, f"{source_id}.srt"),
         }
+        result_paths = {key: path for key, path in result_paths.items() if Path(path).is_file()}
         # 终态与 COMPLETED 事件由 mark_completed 在同一次落库中原子持久化
         # （elapsed 取值时点与此处调用时点一致），无需再单独 push/save
-        job.mark_completed(result_paths, elapsed=elapsed)
+        if not job.mark_completed(result_paths, elapsed=elapsed):
+            return
         # 任务完成副作用（插件挂载点）：开源版无注册者 = 空操作；任何副作用异常
         # 都在 hooks 内被吞掉并记日志，绝不影响任务终态
         hooks.run_job_completed_side_effects(
@@ -1251,6 +1352,9 @@ def _run_job_inner(job: Job) -> None:
             },
         )
         logger.info("job %s completed in %.2fs", job.job_id, elapsed)
+    except JobSuspendedError:
+        _suspend_job(job)
+        logger.info("job %s retained for restart", job.job_id)
     except JobCancelledError as exc:
         # CANCELLED/ERROR 终态事件由 mark_cancelled/mark_failed 统一推送，此处不重复
         if exc.user_cancelled:
@@ -1374,6 +1478,8 @@ def _build_source(settings: Any, job: Job) -> Any:
         audio_path = job.payload.get("audio_path") or job.payload.get("file_path")
         if not audio_path:
             raise ValueError("local source requires audio_path")
+        if _local_source_factory is not None:
+            return _local_source_factory(settings, job)
         return LocalAudioSource(
             Path(audio_path),
             title=job.payload.get("title"),

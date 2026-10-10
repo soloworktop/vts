@@ -120,25 +120,18 @@ def test_terminal_write_lost_race_does_not_clobber_retry(tasks_db):
     assert _db_status(job.job_id) == JobStatus.PENDING
 
 
-def test_mark_completed_lost_race_falls_back_to_save(tasks_db, monkeypatch):
-    """mark_completed 转换意外失败时回退盲写：完成产物已在磁盘，绝不丢 completed 终态。"""
+def test_mark_completed_lost_race_preserves_winner(tasks_db, monkeypatch):
     job = web_tasks.create_job({"source_type": "url", "url": "https://example.test/v"})
     job.mark_running()
-
-    original = web_tasks.transition_job
-
-    def losing_transition(job_id, expected, new, *, fields=None):
-        return False  # 强制所有转换失败（白盒：仅覆盖回退分支）
-
-    monkeypatch.setattr(web_tasks, "transition_job", losing_transition)
-    job.mark_completed({"summary": "/tmp/x.md"}, elapsed=1.0)
-    monkeypatch.setattr(web_tasks, "transition_job", original)
-
-    row = web_tasks.get_job(job.job_id)
-    assert row.status == JobStatus.COMPLETED
-    assert row.result_paths == {"summary": "/tmp/x.md"}
-    events = [e["event"] for e in row.progress.to_list()]
-    assert "finalized" in events and "completed" in events
+    assert web_tasks.transition_job(job.job_id, JobStatus.RUNNING, JobStatus.CANCELLED)
+    indexed = []
+    monkeypatch.setattr("video_to_summary.web.fts_index.index_job_artifacts", lambda *a: indexed.append(a))
+    assert job.mark_completed({"summary": "/tmp/x.md"}, elapsed=1.0) is False
+    assert _db_status(job.job_id) == JobStatus.CANCELLED
+    assert job.result_paths is None
+    assert not indexed
+    job.save()  # a stale non-state update must not revive or erase the winner
+    assert _db_status(job.job_id) == JobStatus.CANCELLED
 
 
 def test_double_run_same_job_single_claim(tasks_db):
@@ -314,7 +307,6 @@ def test_scheduler_lock_acquire_idempotent_and_release(tasks_db):
 
 def test_scheduler_lock_conflict(tasks_db):
     """同一锁文件被另一句柄持有（等价第二进程）时，acquire 必须给出明确错误。"""
-    import fcntl
     import os
 
     web_tasks._scheduler_lock_handles.clear()
@@ -323,7 +315,7 @@ def test_scheduler_lock_conflict(tasks_db):
     # 模拟「另一个进程」已持锁的场景
     other_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(other_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        web_tasks._lock_exclusive(other_fd)
         web_tasks._scheduler_lock_handles.clear()
         with pytest.raises(web_tasks.SingleInstanceError, match="单进程"):
             web_tasks.acquire_scheduler_lock()
@@ -343,9 +335,9 @@ def test_scheduler_lock_blocks_second_process(tasks_db):
     holder = subprocess.Popen(
         [
             sys.executable, "-c",
-            "import fcntl, os, time\n"
+            "import os, time\nfrom video_to_summary.web.tasks import _lock_exclusive\n"
             f"fd = os.open({str(lock_path)!r}, os.O_CREAT | os.O_RDWR, 0o600)\n"
-            "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+            "_lock_exclusive(fd)\n"
             "print('held', flush=True)\n"
             "time.sleep(15)\n",
         ],
@@ -383,3 +375,11 @@ def test_lifespan_acquires_and_releases_lock(tasks_db, monkeypatch):
         assert web_tasks.scheduler_lock_path().name in str(web_tasks._scheduler_lock_handles) or web_tasks._scheduler_lock_handles
     assert not web_tasks._scheduler_lock_handles
     web_tasks._scheduler_lock_handles.clear()
+
+
+def test_completion_cannot_erase_persisted_cancel_request(tasks_db):
+    job = web_tasks.create_job({"url": "https://example.test/v"})
+    job.mark_running()
+    assert web_tasks.cancel_job(job.job_id)
+    assert job.mark_completed({"summary": "/tmp/late.md"}) is False
+    assert _db_status(job.job_id) == JobStatus.CANCELLED

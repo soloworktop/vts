@@ -62,3 +62,17 @@ SQLite 库路径解析（`db.py::resolve_database_path`，纯函数、可单测�
 > 启动恢复均为进程内状态）。请勿以 `uvicorn --workers N`（N>1）启动或让多个进程共用
 > 同一 `VIDEO_TO_SUMMARY_DB` 目录；数据目录运行锁会在第二个进程启动时给出明确错误。
 > 详见 README「安全」与 `docs/tech-debt.md`。
+
+## 桌面配置与数据隔离
+
+桌面通过 `resolve_database_path(use_user_data=True)` 解析路径，默认数据库分别为
+`%LOCALAPPDATA%\VTS\desktop\app.db` 与
+`~/Library/Application Support/VTS/desktop/app.db`。显式 DB/output/upload 覆盖有效。
+工作目录固定为数据库目录；模型环境变量不继承开发 shell，不自动读取源码 `.env`。
+设置页填写两模型槽，或把迁移 `.env` 放到该目录后显式导入。历史 ZIP 不包含 Key 或
+全局配置。关闭应用后一起备份数据库、`enc_key`、产物及原始本地媒体。
+
+普通设置增加 `user_agent` / `cookies`（路径字符串，空代表未设置）；显式文件优先于
+浏览器 cookies。Release 的版本由 Tag 和 setuptools-scm 统一，前端不维护独立版本。
+桌面安全会话由启动器生成，只驻内存；不使用用户配置的 Web Token 作为桌面会话。
+完整安装、退出恢复与构建说明见 [桌面指南](desktop.md)。

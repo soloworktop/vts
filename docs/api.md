@@ -61,3 +61,8 @@ canonical 前缀为 **`/api/v1`**；过渡别名 `/api/*` 已随前端切换（M
   文件，后者永不删除）；启动时会自动清扫进程崩溃残留的孤儿上传目录
 - 上传目录默认 `<产物基目录>/uploads`，环境变量 `VIDEO_TO_SUMMARY_UPLOAD_DIR` 可覆盖
   （Docker 部署默认落在 `/output/uploads`，随 `vts_output` 卷持久化）
+
+桌面与 Web 共用 `GET/PUT /api/v1/settings`：新增 `user_agent`、`cookies` 字符串字段。
+空串使用默认行为；cookies 文件须存在，文件优先于 `cookies_browser`。
+桌面启动生成临时 Bearer 会话，所有 API 请求（含 HEAD 和上传）均须携带；Token 不写入 URL 或磁盘。
+HTTP 路径集合未变。

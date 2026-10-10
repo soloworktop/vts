@@ -54,6 +54,7 @@ ARG APT_MIRROR=
 # 运行期 version.py 的 env 优先级最高（非空即返回）；留空 = 本地源码构建，回落
 # 包元数据/开发态，不改变默认行为（见 src/video_to_summary/version.py）。
 ARG VIDEO_TO_SUMMARY_VERSION=
+ARG VTS_PACKAGE_VERSION=0.0.0.dev0
 ENV VIDEO_TO_SUMMARY_VERSION=${VIDEO_TO_SUMMARY_VERSION}
 
 # ffmpeg：yt-dlp 抽音频/合流必需；tzdata：让 TZ 环境变量生效。
@@ -82,7 +83,7 @@ COPY src ./src
 # site-packages —— 运行时 uvicorn 从 site-packages 读 static，删了会首页白屏。
 COPY --from=web-build /build/src/video_to_summary/web/static ./src/video_to_summary/web/static
 
-RUN python -m pip install --no-cache-dir ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} .
+RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VTS="${VTS_PACKAGE_VERSION}" python -m pip install --no-cache-dir ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} .
 
 # 非 root 运行；数据与产物走 volume（compose 已声明）。
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin vts \

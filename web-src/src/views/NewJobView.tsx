@@ -56,7 +56,7 @@ export function NewJobView() {
   const [uploadPercent, setUploadPercent] = useState(0);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
-  const desktopForm = useMemo(() => isDesktopApp(), []);
+  const desktopForm = isDesktopApp();
 
   // 模板下拉：全部模板（内置声明序在前，首个即「通用」），预选全局默认模板
   const { data: templatesData } = useQuery({ queryKey: ["templates"], queryFn: fetchTemplates });

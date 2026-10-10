@@ -88,6 +88,8 @@ export interface Settings {
   subtitle_preference: string; // auto | manual_only | off
   subtitle_language: string;
   cookies_browser: string;
+  user_agent: string;
+  cookies: string;
   proxy: string;
   polish_transcript: boolean;
 }

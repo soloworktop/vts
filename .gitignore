@@ -48,3 +48,12 @@ src/video_to_summary/web/static/assets/
 
 # pnpm 本地存储缓存（构建时落在仓库根的包缓存）
 .pnpm-store/
+
+# Desktop build resources and SCM metadata
+src/video_to_summary/_scm_version.py
+.desktop-cache/
+desktop-dist/
+/web-src/node_modules
+
+# Isolated native CI build interpreter
+.desktop-venv/

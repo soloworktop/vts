@@ -170,12 +170,8 @@ def sanitize_text(text: str) -> str:
 # ---------------------------------------------------------------- bundle
 
 def _app_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("video-to-summary")
-    except Exception:  # noqa: BLE001 - 元数据缺失不阻断导出
-        return "unknown"
+    from .version import get_version
+    return get_version()
 
 
 def _schema_version() -> str:

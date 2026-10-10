@@ -16,6 +16,16 @@
 
 ---
 
+## 桌面客户端
+
+桌面端复用现有 Web 界面，目标平台为 Windows 11 x64 与 macOS 14+ Apple Silicon。
+安装包下载入口：[GitHub Releases](https://github.com/soloworktop/vts/releases)（选择带
+桌面附件的版本）。支持 URL、本地音频/视频、原生选择与保存、产物打开和退出后恢复。
+数据独立保存，升级/卸载保留数据；首次在设置中填写自备 OpenAI 兼容端点。
+Windows 需要 WebView2 Runtime；首版无发布者签名、公证或自动更新。
+安装、备份、开发和发布门禁见 [桌面指南](docs/desktop.md)。Windows 和干净机器首开
+验收尚未完成，首个正式桌面版本须在这些门禁通过后发布。
+
 ## 为什么是 VTS
 
 VTS 面向想把长视频变成可复用的个人知识、又不想依赖第三方 SaaS 的人：

@@ -132,3 +132,17 @@ def test_real_resolution_returns_nonempty(fresh_cache):
     v = version_mod.get_version()
     assert isinstance(v, str) and v
     assert v == version_mod.get_version()
+
+
+def test_release_version_platform_mapping():
+    from scripts.prepare_version import release_version
+    import pytest
+    data = release_version("v1.2.3-rc.4", "example-sha")
+    assert data["display"] == "v1.2.3-rc.4"
+    assert data["package"] == "1.2.3rc4"
+    assert data["windows"] == "1.2.3.4"
+    assert data["macos"] == "1.2.3"
+    assert data["prerelease"]
+    for tag in ("latest", "v01.2.3", "v1.2", "v1.2.3-rc.0", "v1.2.3+bad", "v1.2.3;echo x"):
+        with pytest.raises(ValueError):
+            release_version(tag, "sha")

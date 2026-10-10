@@ -10,6 +10,9 @@
 """
 
 import os
+from pathlib import Path
+
+from ..config import normalize_user_agent
 
 from .. import db
 from ..log_export import scrub_url_credentials as _scrub_url_credentials
@@ -21,6 +24,8 @@ _JOB_DEFAULTS: dict[str, str] = {
     "polish_preset": "default",
     "subtitle_preference": "auto",  # auto | manual_only | off
     "subtitle_language": "auto",
+    "user_agent": "",
+    "cookies": "",
     "cookies_browser": "",  # 空 = 不使用；yt-dlp cookies-from-browser 浏览器名
     "proxy": "",  # 空 = 自动（环境变量/直连）；如 http://127.0.0.1:7897
 }
@@ -87,6 +92,13 @@ def set_job_defaults(values: dict) -> None:
                     f"unsupported browser for cookies: {value!r} (可选: {', '.join(sorted(COOKIES_BROWSERS))})"
                 )
             cleaned.append((name, browser))
+        elif name == "user_agent":
+            cleaned.append((name, normalize_user_agent(str(value or "")) or ""))
+        elif name == "cookies":
+            path = str(value or "").strip()
+            if path and not Path(path).expanduser().is_file():
+                raise ValueError("cookies 文件不存在；请选择现有 cookies.txt 文件")
+            cleaned.append((name, str(Path(path).expanduser().resolve()) if path else ""))
         elif name == "proxy":
             proxy = str(value or "").strip()
             if proxy and not proxy.lower().startswith(_PROXY_SCHEMES):
@@ -121,6 +133,8 @@ def job_defaults_payload() -> dict:
         "subtitle_preference": d["subtitle_preference"],
         "subtitle_language": d["subtitle_language"],
         "cookies_browser": d["cookies_browser"],
+        "cookies": d["cookies"] or None,
+        "user_agent": d["user_agent"] or None,
         "proxy": d["proxy"],
     }
 

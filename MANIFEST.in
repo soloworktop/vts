@@ -1,0 +1,15 @@
+include LICENSE README.md README.en.md pyproject.toml AGENTS.md
+recursive-include src/video_to_summary/web/static *
+include src/video_to_summary/_version.py
+include src/video_to_summary/_scm_version.py
+recursive-include packaging/desktop *
+recursive-include scripts *.py *.sh *.txt
+recursive-include docs *.md
+recursive-include web-src *.json *.yaml *.ts *.tsx *.css *.html *.mjs *.md
+prune web-src/node_modules
+prune web-src/dist
+prune .desktop-cache
+prune desktop-dist
+prune data
+prune output
+global-exclude .env *.db *.db-wal *.db-shm enc_key cookies.txt *.pyc __pycache__

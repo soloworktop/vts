@@ -182,7 +182,10 @@ class Settings:
         for f in fields(cls):
             if f.type is Path or f.type is Optional[Path]:
                 if f.name in data and data[f.name] is not None and not isinstance(data[f.name], Path):
-                    data[f.name] = Path(data[f.name])
+                    if f.name == "cookies" and not str(data[f.name]).strip():
+                        data.pop(f.name)
+                    else:
+                        data[f.name] = Path(data[f.name])
             # bool 字段归一（payload 可能传来 "true"/"false" 等字符串）
             elif f.type is bool and f.name in data and not isinstance(data[f.name], bool):
                 data[f.name] = str(data[f.name]).strip().lower() in ("1", "true", "yes", "on")
@@ -232,3 +235,7 @@ class Settings:
                         "VTS_COOKIES_FILE=/data/cookies.txt",
                         cookies_file,
                     )
+
+# Desktop lifecycle defaults (seconds).
+DESKTOP_START_TIMEOUT = 30
+DESKTOP_STOP_TIMEOUT = 15

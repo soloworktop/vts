@@ -5,6 +5,7 @@
 """
 
 import concurrent.futures
+import os
 
 from video_to_summary import crypto
 
@@ -28,7 +29,9 @@ def test_concurrent_first_use_single_key_and_decryptable(tmp_path, monkeypatch):
     assert not any(name.startswith(".enc_key") for name in files)
     key_file = tmp_path / "enc_key"
     assert key_file.exists()
-    assert key_file.stat().st_mode & 0o777 == 0o600
+    # Windows chmod only maps the read-only bit; access is controlled by profile ACLs.
+    if os.name != "nt":
+        assert key_file.stat().st_mode & 0o777 == 0o600
 
     # 所有线程产物都能解回原文（密钥环境一致）
     for i, ct in enumerate(ciphertexts):
@@ -121,3 +124,13 @@ def test_legacy_plaintext_passthrough_is_key_itself():
     assert crypto.decrypt_secret("sk-plain-legacy-key") == "sk-plain-legacy-key"
     assert crypto.decrypt_secret("") == ""
     assert crypto.is_encrypted("sk-plain-legacy-key") is False
+
+
+def test_missing_crypto_refuses_plaintext_storage():
+    import unittest.mock as mock
+    import pytest
+    crypto.reset()
+    with mock.patch.dict("sys.modules", {"cryptography": None, "cryptography.fernet": None}):
+        with pytest.raises(crypto.SecretDecryptError, match="cryptography"):
+            crypto.encrypt_secret("example-key")
+    crypto.reset()

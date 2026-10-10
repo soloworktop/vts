@@ -1,0 +1,19 @@
+# Runtime and freezing toolchain; locks target CPython 3.12 independently.
+aiofiles==25.1.0
+cryptography==50.0.2
+fastapi==0.143.0
+openai==3.27.0
+python-dotenv==1.2.4
+python-multipart==0.0.32
+uvicorn==0.54.0
+yt-dlp==2026.8.19
+pywebview==6.2.1
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+setuptools==84.0.0
+setuptools-scm==9.2.2
+wheel==0.48.0
+build==1.6.1
+pytest==9.1.1
+httpx==0.28.1
+requests==2.34.2

@@ -17,6 +17,18 @@
 
 ---
 
+## Desktop client
+
+The desktop client reuses the Web UI and targets Windows 11 x64 and macOS 14+ Apple Silicon.
+Download desktop attachments from [GitHub Releases](https://github.com/soloworktop/vts/releases)
+when available. It supports URLs, local audio/video, native file dialogs, opening products,
+and resuming unfinished jobs after exit. Data lives separately from the installed application;
+upgrades and uninstall preserve it. Configure your own OpenAI-compatible endpoints in Settings.
+Windows requires WebView2 Runtime. The first release has no publisher signature, notarization,
+or automatic updater. See the [desktop guide](docs/desktop.md) for development, backup and
+release checks. Windows and clean-machine first-launch acceptance remain pending; the first
+formal desktop release requires those checks to pass.
+
 ## Why VTS
 
 VTS is for people who want to turn long-form video into reusable personal knowledge

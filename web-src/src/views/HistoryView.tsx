@@ -1,3 +1,4 @@
+import { apiResponse } from "../api/client";
 // ============ 历史任务视图：左列筛选/搜索/分组列表 + 右列产物详情 ============
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -185,7 +186,7 @@ export function HistoryView() {
     // 浏览器：真实 attachment 下载（禁 Blob）+ toast 反馈
     showToast("正在打包历史数据…", { ttl: 4000 });
     // HEAD 探测文件名（不拉整包 zip 进内存，大包双倍带宽），下载仍走真实 URL
-    fetch(url, { method: "HEAD" })
+    apiResponse(url, { method: "HEAD" })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const name = (res.headers.get("content-disposition") || "").match(/filename="?([^";]+)"?/)?.[1] || "vts-history.zip";

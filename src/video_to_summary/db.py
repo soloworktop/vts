@@ -75,6 +75,7 @@ def resolve_database_path(
     platform: str | None = None,
     home: str | Path | None = None,
     environ: dict | None = None,
+    use_user_data: bool = False,
 ) -> Path:
     """解析 SQLite 数据库路径（纯函数，平台/家目录/环境全部可注入，便于单测）。
 
@@ -89,7 +90,7 @@ def resolve_database_path(
     if env:
         return Path(env)
     pkg = Path(package_file) if package_file is not None else Path(__file__).resolve()
-    if _looks_like_source_checkout(pkg):
+    if not use_user_data and _looks_like_source_checkout(pkg):
         return pkg.parents[2] / "data" / "app.db"
     plat = platform or sys.platform
     home_dir = Path(home) if home is not None else Path.home()

@@ -1,3 +1,4 @@
+import { sessionHeaders } from "../lib/desktop";
 // ============ API 层唯一出口 ============
 // 所有后端请求集中在 src/api/ 一处。base path 常量 = /api/v1（canonical，见
 // app.py::API_PREFIX）。禁止在组件/视图里散落硬编码 URL——一律经 endpoints.ts。
@@ -54,7 +55,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
   if (opts.rawBody == null && opts.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiResponse(`${API_BASE}${path}`, {
     method: opts.method || "GET",
     headers,
     body: opts.rawBody !== undefined ? opts.rawBody : opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
@@ -81,4 +82,15 @@ export const api = {
 /** 下载类 URL（真实 attachment，禁 Blob 拼下载——WKWebView 下会被内联渲染）。 */
 export function downloadUrl(path: string): string {
   return `${API_BASE}${path}`;
+}
+
+/** Authenticated JSON, HEAD and diagnostic responses from this origin only. */
+export function apiResponse(url: string, init: RequestInit = {}): Promise<Response> {
+  const parsed = new URL(url, location.origin);
+  if (parsed.origin !== location.origin || !parsed.pathname.startsWith(`${API_BASE}/`)) {
+    throw new Error("不允许向外部地址发送接口会话");
+  }
+  const headers = new Headers(init.headers);
+  for (const [key, value] of Object.entries(sessionHeaders())) headers.set(key, value);
+  return fetch(url, { ...init, headers });
 }

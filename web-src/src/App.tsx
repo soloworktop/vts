@@ -1,3 +1,5 @@
+import { allowDesktopExit, desktopApi, isDesktopApp } from "./lib/desktop";
+import { Modal } from "./components/Modal";
 import { LEGACY_IMPORT_ACK_KEY } from "./lib/constants";
 // ============ 应用外壳：侧栏导航 + 视图切换 + 全局引导 ============
 import { useCallback, useEffect, useState } from "react";
@@ -37,6 +39,32 @@ export function App() {
 
   const [themeMode, setThemeMode] = useState<ThemeMode>(storedThemeMode());
   const [guideOpen, setGuideOpen] = useState(false);
+  const [exitOpen, setExitOpen] = useState(false);
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    let inProgress = false;
+    const close = async () => {
+      if (inProgress) return;
+      inProgress = true;
+      try {
+        if (!(await allowDesktopExit())) return;
+        let offset = 0;
+        while (true) {
+          const response = await fetchJobs({ limit: 200, offset });
+          if (response.jobs.some((job) => job.status === "running" || job.status === "pending")) {
+            setExitOpen(true);
+            return;
+          }
+          offset += response.jobs.length;
+          if (!response.jobs.length || offset >= response.total) break;
+        }
+        await desktopApi()!.request_exit();
+      } catch { setExitOpen(true); }
+      finally { inProgress = false; }
+    };
+    window.addEventListener("vts:desktop-close", close);
+    return () => window.removeEventListener("vts:desktop-close", close);
+  }, []);
   // 使用手册弹层：Esc 关闭（该弹层未走 Modal 组件，需单独处理）
   useEffect(() => {
     if (!guideOpen) return;
@@ -217,6 +245,12 @@ export function App() {
         {view === "settings" && <SettingsView />}
       </main>
 
+      <Modal open={exitOpen} onClose={() => setExitOpen(false)} ariaLabel="退出 VTS">
+        <h3>退出 VTS？</h3>
+        <p>未完成任务将在下次启动恢复，已有产物与配置会保留。</p>
+        <button className="secondary" onClick={() => setExitOpen(false)}>继续使用</button>
+        <button id="desktopExitConfirm" onClick={() => void desktopApi()!.request_exit()}>退出并保留任务</button>
+      </Modal>
       {/* 使用手册弹层 */}
       {guideOpen && (
         <div className="modal-overlay" id="guideOverlay" role="dialog" aria-modal="true" aria-label="用户使用手册" onMouseDown={(e) => { if (e.target === e.currentTarget) setGuideOpen(false); }}>
