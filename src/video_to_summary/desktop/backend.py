@@ -37,7 +37,7 @@ def backend_main(connection):
     from .logging import configure
     configure(paths.logs, config["token"])
     try:
-        asyncio.run(_serve(connection, paths, config["bootstrap_nonce"]))
+        asyncio.run(_serve(connection, paths, config["bootstrap_nonce"], config.get("cleanup_probe", False)))
     except BaseException:
         import logging
         logging.getLogger("video_to_summary.desktop").exception("backend startup/runtime failed")
@@ -54,7 +54,7 @@ def backend_main(connection):
             os.killpg(os.getpgrp(), signal.SIGKILL)
 
 
-async def _serve(connection, paths, bootstrap_nonce):
+async def _serve(connection, paths, bootstrap_nonce, cleanup_probe=False):
     import uvicorn
     from starlette.responses import HTMLResponse
     from ..web.app import app, _static_dir
@@ -100,7 +100,20 @@ async def _serve(connection, paths, bootstrap_nonce):
         from .. import db
         with db.get_conn() as database:
             database.execute("SELECT count(*) FROM jobs_fts").fetchone()
-        connection.send({"event": DesktopMessage.READY, "port": sock.getsockname()[1], "version": get_version(), "checks": ["cryptography", "sqlite-fts5"]})
+        probe_pid = None
+        if cleanup_probe:
+            import subprocess
+            from ..utils import subprocess_no_window_kwargs
+            # Native artifact smoke leaves a real media child alive until GUI shutdown.
+            child = subprocess.Popen([binary_path("ffmpeg"), "-nostdin", "-v", "error", "-re", "-f", "lavfi",
+                "-i", "sine=duration=600", "-f", "null", "-"], stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, **subprocess_no_window_kwargs())
+            await asyncio.sleep(0.1)
+            if child.poll() is not None:
+                raise RuntimeError("Media child cleanup probe exited before shutdown")
+            probe_pid = child.pid
+        connection.send({"event": DesktopMessage.READY, "port": sock.getsockname()[1], "version": get_version(),
+                         "checks": ["cryptography", "sqlite-fts5"], "media_probe_pid": probe_pid})
         while not serving.done():
             if connection.poll():
                 try:
@@ -126,20 +139,21 @@ class Backend:
         self.origin = ""
         self.version = ""
         self.checks = []
+        self.media_probe_pid = None
         context = multiprocessing.get_context("spawn")
         self.connection, child = context.Pipe()
         self.process = context.Process(target=backend_main, args=(child,), name="vts-backend")
         self.child = child
         self.tree = None
 
-    def start(self, timeout=DESKTOP_START_TIMEOUT):
+    def start(self, timeout=DESKTOP_START_TIMEOUT, *, cleanup_probe=False):
         from .process_control import ProcessTree
         self.paths.prepare()
         self.process.start()
         self.child.close()
         try:
             self.tree = ProcessTree(self.process)
-            self.connection.send({"paths": self.paths, "token": self.token, "bootstrap_nonce": self.bootstrap_nonce})
+            self.connection.send({"paths": self.paths, "token": self.token, "bootstrap_nonce": self.bootstrap_nonce, "cleanup_probe": cleanup_probe})
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if self.connection.poll(0.1):
@@ -151,6 +165,7 @@ class Backend:
                     self.origin = f"http://127.0.0.1:{message['port']}"
                     self.version = message["version"]
                     self.checks = message["checks"]
+                    self.media_probe_pid = message.get("media_probe_pid")
                     health = self.request("/api/v1/health")
                     if health.get("status") != "ok" or health.get("version") != self.version:
                         raise RuntimeError("本地服务健康/版本检查失败")

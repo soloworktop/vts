@@ -21,9 +21,9 @@ def main():
     try:
         if not args.desktop_smoke:
             _require_webview2()
-        backend.start()
+        backend.start(cleanup_probe=bool(args.desktop_smoke or args.desktop_gui_smoke))
         if args.desktop_smoke:
-            args.desktop_smoke.write_text(json.dumps({"ok": True, "version": backend.version, "checks": backend.checks, "backend_pid": backend.process.pid}), encoding="utf-8")
+            args.desktop_smoke.write_text(json.dumps({"ok": True, "version": backend.version, "checks": backend.checks, "backend_pid": backend.process.pid, "media_probe_pid": backend.media_probe_pid}), encoding="utf-8")
             return
         import webview
         from .bridge import Bridge
@@ -74,7 +74,7 @@ def main():
                     window.evaluate_js("window.pywebview.api.copy_text('VTS desktop smoke', " + json.dumps(backend.token) + ").then(ok => { window.__DESKTOP_SMOKE_OK__ = Boolean(ok); })")
                     while time.monotonic() < deadline:
                         if window.evaluate_js("Boolean(window.__DESKTOP_SMOKE_OK__)"):
-                            args.desktop_gui_smoke.write_text(json.dumps({"ok": True, "gui": True, "bridge": True, "version": backend.version, "checks": backend.checks, "backend_pid": backend.process.pid}), encoding="utf-8")
+                            args.desktop_gui_smoke.write_text(json.dumps({"ok": True, "gui": True, "bridge": True, "version": backend.version, "checks": backend.checks, "backend_pid": backend.process.pid, "media_probe_pid": backend.media_probe_pid}), encoding="utf-8")
                             break
                         time.sleep(0.1)
                     else:

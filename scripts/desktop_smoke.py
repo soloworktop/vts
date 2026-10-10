@@ -74,8 +74,14 @@ def smoke(executable, gui, expected=None):
                 raise RuntimeError("Native smoke failed: " + str(result))
             if expected and result["version"] != expected:
                 raise RuntimeError("Frozen version differs from release Tag")
-            if alive(result["backend_pid"]):
-                raise RuntimeError("Backend survived GUI exit")
+            media_pid = result.get("media_probe_pid")
+            if not media_pid:
+                raise RuntimeError("Frozen app did not exercise media child cleanup")
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and (alive(result["backend_pid"]) or alive(media_pid)):
+                time.sleep(0.1)
+            if alive(result["backend_pid"]) or alive(media_pid):
+                raise RuntimeError("Backend/media child survived GUI exit")
             print(json.dumps(result))
         finally:
             if process.poll() is None:
