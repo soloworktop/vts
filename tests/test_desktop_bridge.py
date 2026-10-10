@@ -65,3 +65,40 @@ def test_remote_frame_cannot_use_main_page_bridge(bridge):
     with pytest.raises(PermissionError, match="caller"):
         bridge.copy_text("attack")
     assert bridge.get_session("example-bootstrap")["token"] == "example-session"
+
+
+@pytest.mark.parametrize("write_succeeds", [True, False])
+def test_windows_clipboard_owner_and_allocation_lifetime(bridge, monkeypatch, write_succeeds):
+    import ctypes
+    from video_to_summary.desktop import bridge as module
+    class Function:
+        def __init__(self, callback):
+            self.callback = callback
+        def __call__(self, *args):
+            return self.callback(*args)
+    owner = 0x123456789
+    opened, freed, closed = [], [], []
+    buffer = ctypes.create_string_buffer(128)
+    bridge._window.native = SimpleNamespace(Handle=SimpleNamespace(ToInt64=lambda: owner))
+    kernel = SimpleNamespace(
+        GlobalAlloc=Function(lambda *a: 1),
+        GlobalLock=Function(lambda *a: ctypes.addressof(buffer)),
+        GlobalUnlock=Function(lambda *a: 1),
+        GlobalFree=Function(lambda handle: freed.append(handle)))
+    user = SimpleNamespace(
+        OpenClipboard=Function(lambda handle: opened.append(handle) or int(handle == owner)),
+        EmptyClipboard=Function(lambda: 1),
+        SetClipboardData=Function(lambda *a: int(write_succeeds)),
+        CloseClipboard=Function(lambda: closed.append(True)))
+    monkeypatch.setattr(ctypes, "WinDLL", lambda name, **kw: kernel if name == "kernel32" else user, raising=False)
+    monkeypatch.setattr(ctypes, "WinError", lambda *a: OSError("clipboard write failed"), raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 5, raising=False)
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    if write_succeeds:
+        assert bridge.copy_text("中文 text", "example-session")
+    else:
+        with pytest.raises(OSError, match="clipboard write"):
+            bridge.copy_text("中文 text", "example-session")
+    assert opened == [owner] and closed == [True]
+    assert freed == ([] if write_succeeds else [1])
+    assert buffer.raw.startswith(("中文 text" + "\0").encode("utf-16-le"))

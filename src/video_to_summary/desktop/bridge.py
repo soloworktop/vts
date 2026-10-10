@@ -174,12 +174,20 @@ class Bridge:
             kernel.GlobalFree.argtypes = [wintypes.HGLOBAL]
             user.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
             user.SetClipboardData.restype = wintypes.HANDLE
+            user.OpenClipboard.argtypes = [wintypes.HWND]
+            user.OpenClipboard.restype = wintypes.BOOL
+            user.EmptyClipboard.restype = wintypes.BOOL
+            # A NULL owner makes SetClipboardData fail after EmptyClipboard.
+            owner = self._window.native.Handle.ToInt64()
+            if not owner:
+                raise RuntimeError("桌面窗口尚未就绪")
             raw = (text + "\0").encode("utf-16-le")
-            if not user.OpenClipboard(None):
+            if not user.OpenClipboard(owner):
                 raise ctypes.WinError(ctypes.get_last_error())
             handle = None
             try:
-                user.EmptyClipboard()
+                if not user.EmptyClipboard():
+                    raise ctypes.WinError(ctypes.get_last_error())
                 handle = kernel.GlobalAlloc(0x0002, len(raw))
                 pointer = kernel.GlobalLock(handle)
                 if not pointer:
