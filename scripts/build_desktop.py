@@ -84,7 +84,7 @@ def verify_binaries(directory, target):
                     raise RuntimeError("Non-system FFmpeg dependency: " + library)
         else:
             dependencies = subprocess.check_output([str(msys2_root() / "mingw64/bin/objdump.exe"), "-p", str(binary)], text=True)
-            allowed = {"kernel32.dll", "msvcrt.dll", "advapi32.dll", "ws2_32.dll", "secur32.dll", "bcrypt.dll", "ncrypt.dll", "user32.dll", "ole32.dll", "oleaut32.dll", "vfw32.dll", "d3d11.dll", "dxgi.dll", "mfplat.dll", "shell32.dll", "psapi.dll", "ntdll.dll", "crypt32.dll", "gdi32.dll", "winmm.dll", "shlwapi.dll"}
+            allowed = {"kernel32.dll", "msvcrt.dll", "advapi32.dll", "ws2_32.dll", "secur32.dll", "bcrypt.dll", "ncrypt.dll", "user32.dll", "ole32.dll", "oleaut32.dll", "vfw32.dll", "avicap32.dll", "d3d11.dll", "dxgi.dll", "mfplat.dll", "shell32.dll", "psapi.dll", "ntdll.dll", "crypt32.dll", "gdi32.dll", "winmm.dll", "shlwapi.dll"}
             if "pei-x86-64" not in dependencies:
                 raise RuntimeError("FFmpeg is not Windows x64")
             # COM/capture libraries above come from the Windows SDK used by FFmpeg.

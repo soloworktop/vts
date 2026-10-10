@@ -63,7 +63,7 @@ def test_compiler_location_uses_actual_environment(monkeypatch, tmp_path):
     assert msys2_root().as_posix() == "C:/msys64"
 
 
-@pytest.mark.parametrize("extra_dll", ["ncrypt.dll", "OLEAUT32.dll", "vfw32.dll", "libwinpthread-1.dll"])
+@pytest.mark.parametrize("extra_dll", ["ncrypt.dll", "OLEAUT32.dll", "vfw32.dll", "AVICAP32.dll", "libwinpthread-1.dll"])
 def test_windows_system_crypto_dependency_only(tmp_path, monkeypatch, extra_dll):
     import scripts.build_desktop as build
     for name in ("ffmpeg.exe", "ffprobe.exe"):
