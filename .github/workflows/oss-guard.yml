@@ -108,7 +108,8 @@ jobs:
           msystem: MINGW64
           update: false
           install: make tar nasm mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: desktop-cache
         with:
           path: .desktop-cache
           key: desktop-${{ runner.os }}-${{ runner.arch }}-py312-${{ hashFiles('packaging/desktop/binaries.json', 'packaging/desktop/build_ffmpeg.sh', 'packaging/desktop/requirements-*.lock') }}
@@ -126,6 +127,14 @@ jobs:
         run: |
           python -m compileall -q src/video_to_summary/desktop scripts/build_desktop.py scripts/desktop_smoke.py
           python -m pytest -q tests/test_desktop_runtime.py tests/test_desktop_bridge.py tests/test_desktop_media.py tests/test_desktop_packaging.py tests/test_web_tasks_atomicity.py tests/test_crypto.py tests/test_version.py tests/test_windows_no_console.py
+      - name: Build and verify native media binaries
+        run: python scripts/build_desktop.py --binaries-only
+      - name: Cache verified media build
+        if: steps.desktop-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .desktop-cache
+          key: ${{ steps.desktop-cache.outputs.cache-primary-key }}
       - name: Freeze native application
         run: python scripts/build_desktop.py
       - name: Smoke from frozen application and native WebView
