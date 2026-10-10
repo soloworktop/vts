@@ -1,198 +1,297 @@
-# 发布流水线：推送 v* tag 触发。
-# 产物：wheel + sdist（GitHub Release 附件，含 SHA256SUMS）+ ghcr.io 多架构 Docker 镜像。
-# 两条仓库铁律：
-# 1. 必须先构建前端再打包 —— web/static 产物不入库，直接打包的 wheel 缺静态资源，
-#    非 editable 安装首页白屏（tests/test_packaging.py 记录的缺陷路径）。
-# 2. 打包前注入 tag 版本 —— pyproject（wheel 元数据，去 v 前缀）+ _version.py
-#    （运行期展示，保留完整 tag；解析链见 src/video_to_summary/version.py）。
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release Tag (vMAJOR.MINOR.PATCH or -rc.N)
+        required: true
+        type: string
+      mode:
+        description: Build only or upload a verified draft
+        required: true
+        default: build
+        type: choice
+        options: [build, draft]
 
 permissions:
-  contents: write # 创建 GitHub Release
-  packages: write # 推送 ghcr.io 镜像
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: Test, build package, smoke
-    runs-on: ubuntu-latest
+  validate-version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      package: ${{ steps.version.outputs.package }}
+      sha: ${{ steps.version.outputs.sha }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      mode: ${{ steps.version.outputs.mode }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
+      - name: Bind strict Tag to source and package version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_MODE: ${{ github.event.inputs.mode || 'publish' }}
+        run: |
+          python scripts/prepare_version.py --tag "$RELEASE_TAG"
+          python - <<'PYCODE'
+          import json, os
+          info = json.load(open('build/desktop/version.json'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for name, value in {'tag': info['display'], 'package': info['package'], 'sha': info['sha'], 'prerelease': str(info['prerelease']).lower(), 'mode': os.environ['RELEASE_MODE']}.items():
+                  print(f'{name}={value}', file=output)
+          PYCODE
 
-      - name: Set up pnpm
-        # 版本对齐 oss-guard.yml / docker/Dockerfile（11.8.0，lockfileVersion 9.0）
-        uses: pnpm/action-setup@v4
+  build:
+    name: Python packages and installed smoke
+    needs: validate-version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+      PACKAGE_VERSION: ${{ needs.validate-version.outputs.package }}
+      SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VTS: ${{ needs.validate-version.outputs.package }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.validate-version.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: "11.8.0"
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          # pnpm 11 需要 Node 22+（同 oss-guard.yml，勿降 20）
-          node-version: "22"
-
-      - name: Build frontend (web-src -> src/video_to_summary/web/static)
+      - name: Build shared frontend
         working-directory: web-src
         run: |
           pnpm install --frozen-lockfile
           pnpm build
-
-      - name: Inject release version (pyproject + _version.py)
+      - name: Validate source and inject display version
         run: |
-          python - <<'PY'
-          import os, pathlib, re
-
-          tag = os.environ["GITHUB_REF_NAME"]
-          ver = tag[1:] if tag.startswith("v") else tag
-          p = pathlib.Path("pyproject.toml")
-          text = re.sub(
-              r'(?m)^version = "[^"]*"',
-              f'version = "{ver}"',
-              p.read_text(encoding="utf-8"),
-              count=1,
-          )
-          p.write_text(text, encoding="utf-8")
-          pathlib.Path("src/video_to_summary/_version.py").write_text(
-              f'VERSION = "{tag}"\n', encoding="utf-8"
-          )
-          print(f"pyproject version -> {ver}; _version.py -> {tag}")
-          PY
-
-      - name: Install package (dev extra) and run tests
-        # 发布门禁：离线全量 pytest（[dev] 含 requests，tests/e2e 收集期需要；
-        # 浏览器用例缺 playwright 自动跳过，完整 e2e 由 oss-guard 在 main 覆盖）
-        # + 禁词 lint。必须在 python -m build 之前（此时 dist/ 尚不存在）。
-        run: |
-          python -m pip install -e ".[dev]"
-          python -m pytest -q
+          python scripts/prepare_version.py --tag "$RELEASE_TAG"
+          python -m pip install -e ".[dev,e2e]" build
+          python -m playwright install --with-deps chromium
+          python -m pytest -q -m "not live and not network"
           python scripts/banned_words_lint.py
-
-      - name: Build sdist and wheel
-        # 顺序敏感：必须在前端构建与版本注入之后（web/static 与 _version.py
-        # 均为构建期产物，不入库）。
+      - name: Build wheel and sdist and verify non-editable installation
         run: |
-          python -m pip install build
           python -m build
-          ls -la dist/
-
-      - name: Generate SHA256SUMS
-        run: |
-          cd dist
-          sha256sum *.whl *.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Smoke test (fresh venv, non-editable wheel install)
-        # tests/test_packaging.py 把 wheel 实测划给发布流程：全新 venv 装 wheel、
-        # 起服务，逐项验证健康检查/版本号/首页引用构建产物/静态资源可达（白屏缺陷
-        # 只在非 editable 安装路径暴露，editable 安装与测试套件看不出来）。
-        run: |
-          python -m venv /tmp/vts-smoke
-          /tmp/vts-smoke/bin/pip install --quiet dist/*.whl
-          export VIDEO_TO_SUMMARY_DB=/tmp/vts-smoke/smoke.db
-          export VIDEO_TO_SUMMARY_OUTPUT_DIR=/tmp/vts-smoke/output
-          /tmp/vts-smoke/bin/python -m uvicorn video_to_summary.web.app:app \
-            --host 127.0.0.1 --port 8131 &> /tmp/vts-smoke/server.log &
-          SRV=$!
-          ok=""
-          for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8131/api/v1/health > /dev/null; then ok=1; break; fi
-            sleep 1
-          done
-          if [ -z "$ok" ]; then
-            echo "::error::服务未在 30s 内就绪"
-            cat /tmp/vts-smoke/server.log
-            kill $SRV
-            exit 1
-          fi
-          curl -sf http://127.0.0.1:8131/api/v1/health | grep -q '"status":"ok"' \
-            || { echo "::error::health 状态非 ok"; kill $SRV; exit 1; }
-          curl -sf http://127.0.0.1:8131/api/v1/health | grep -q "\"version\":\"$GITHUB_REF_NAME\"" \
-            || { echo "::error::health 版本号 != $GITHUB_REF_NAME"; kill $SRV; exit 1; }
-          ASSET=$(curl -sf http://127.0.0.1:8131/ | grep -o 'assets/index-[^"]*\.js' | head -1)
-          [ -n "$ASSET" ] \
-            || { echo "::error::首页未引用构建产物（wheel 缺静态资源）"; kill $SRV; exit 1; }
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8131/static/$ASSET")
-          [ "$CODE" = "200" ] \
-            || { echo "::error::/static/$ASSET -> $CODE（静态资源缺失，白屏缺陷路径）"; kill $SRV; exit 1; }
-          ( cd /tmp && /tmp/vts-smoke/bin/vts --version | grep -qF "$GITHUB_REF_NAME" ) \
-            || { echo "::error::CLI --version 未显示 $GITHUB_REF_NAME"; kill $SRV; exit 1; }
-          echo "smoke ok: health=ok version=$GITHUB_REF_NAME asset=$ASSET"
-          kill $SRV
-
-      - uses: actions/upload-artifact@v4
+          python scripts/package_smoke.py --tag "$RELEASE_TAG" --package-version "$PACKAGE_VERSION"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: dist
-          path: dist/
+          name: release-python
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+  desktop-build:
+    name: Installer ${{ matrix.target }}
+    needs: [validate-version, build]
+    env:
+      RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            target: windows-x64
+            lock: windows
+            frozen: desktop-dist/VTS
+          - runner: macos-15
+            target: macos-arm64
+            lock: macos
+            frozen: desktop-dist/VTS.app
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.validate-version.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: packaging/desktop/requirements-${{ matrix.lock }}.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: "11.8.0"
+      - name: Install locked Python dependencies
+        run: |
+          python scripts/install_desktop_deps.py "${{ matrix.lock }}"
+      - name: Build existing frontend
+        working-directory: web-src
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Check native architecture
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python -c "import os; from scripts.build_desktop import target_platform; assert target_platform() == os.environ['TARGET']"
+      - name: Set up Windows native compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        with:
+          msystem: MINGW64
+          update: false
+          install: make tar nasm mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .desktop-cache
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-py312-${{ hashFiles('packaging/desktop/binaries.json', 'packaging/desktop/build_ffmpeg.sh', 'packaging/desktop/requirements-*.lock') }}
+      - name: Desktop regression and compilation checks
+        run: |
+          python -m compileall -q src/video_to_summary/desktop scripts/build_desktop.py scripts/desktop_smoke.py
+          python -m pytest -q tests/test_desktop_runtime.py tests/test_desktop_bridge.py tests/test_desktop_media.py tests/test_desktop_packaging.py tests/test_web_tasks_atomicity.py tests/test_crypto.py tests/test_version.py tests/test_windows_no_console.py
+      - name: Freeze and create installer
+        run: python scripts/build_desktop.py --tag "$RELEASE_TAG" --installer
+      - name: Smoke from frozen application and native WebView
+        run: |
+          python scripts/desktop_smoke.py "${{ matrix.frozen }}" --version "$RELEASE_TAG"
+          python scripts/desktop_smoke.py "${{ matrix.frozen }}" --version "$RELEASE_TAG" --gui
+      - name: Keep build diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-diagnostics-${{ matrix.target }}
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            build/desktop/metrics.json
+            build/desktop/version.json
+            build/desktop/freeze/**/warn-*.txt
+            .desktop-cache/ffmpeg/**/build.log
+      - name: Verify installed artifact with native engine
+        run: |
+          python - <<'PYCODE'
+          import glob, os, subprocess, sys
+          pattern = 'desktop-dist/*-setup.exe' if sys.platform == 'win32' else 'desktop-dist/*.dmg'
+          artifacts = glob.glob(pattern)
+          assert len(artifacts) == 1, artifacts
+          subprocess.run([sys.executable, 'scripts/desktop_smoke.py', artifacts[0], '--gui', '--version', os.environ['RELEASE_TAG']], check=True)
+          PYCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-desktop-${{ matrix.target }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            desktop-dist/*-setup.exe
+            desktop-dist/*.dmg
+
+  assemble:
+    name: Verify all four attachments and checksums
+    needs: [validate-version, build, desktop-build]
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+      RELEASE_SHA: ${{ needs.validate-version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.validate-version.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist-release
+      - run: python scripts/publish_release.py --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --mode build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-release
+          retention-days: 14
+          if-no-files-found: error
+          path: dist-release/*
 
   release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
+    name: Upload verified draft, then publish
+    needs: [validate-version, assemble]
+    if: needs.validate-version.outputs.mode != 'build'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+      RELEASE_SHA: ${{ needs.validate-version.outputs.sha }}
+      RELEASE_MODE: ${{ needs.validate-version.outputs.mode }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          name: dist
-          path: dist
-
-      - name: Create GitHub Release
-        # wheel / sdist / SHA256SUMS 全部作为附件；--generate-notes 自动汇总 changelog。
-        # 幂等：tag 重推（修 tag / 历史重写）时 Release 已存在，改用 --clobber 覆盖同名
-        # 附件，不让流水线红在重复发布上。
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" --clobber dist/*
-          else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
-              --generate-notes \
-              dist/*
-          fi
+          ref: ${{ needs.validate-version.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: verified-release
+          path: dist-release
+      - run: python scripts/publish_release.py --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --mode "$RELEASE_MODE"
 
   docker:
-    name: Build & push image (ghcr.io)
-    # 依赖 release 而非只依赖 build：tag 重复导致 Release 创建失败时，不再推送镜像
-    # （fail-closed，避免半发布态）。
-    needs: [build, release]
-    runs-on: ubuntu-latest
+    name: Build and push GHCR image
+    needs: [validate-version, release]
+    if: needs.validate-version.outputs.mode == 'publish'
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Lowercase image name (ghcr 要求全小写)
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-
-      - uses: docker/setup-qemu-action@v3
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.validate-version.outputs.sha }}
+      - name: Image tags (prereleases never update latest)
+        env:
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+          PRERELEASE: ${{ needs.validate-version.outputs.prerelease }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            echo 'IMAGE_TAGS<<EOF'
+            echo "$IMAGE:$RELEASE_TAG"
+            if [ "$PRERELEASE" = false ]; then echo "$IMAGE:latest"; fi
+            echo EOF
+          } >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
-          # 构建上下文 = 仓库根（docker/README.md 约定，Dockerfile 内路径以此为基准）
           context: .
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ github.ref_name }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ env.IMAGE_TAGS }}
           build-args: |
-            VIDEO_TO_SUMMARY_VERSION=${{ github.ref_name }}
+            VIDEO_TO_SUMMARY_VERSION=${{ needs.validate-version.outputs.tag }}
+            VTS_PACKAGE_VERSION=${{ needs.validate-version.outputs.package }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
