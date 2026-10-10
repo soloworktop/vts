@@ -84,12 +84,14 @@ def verify_binaries(directory, target):
                     raise RuntimeError("Non-system FFmpeg dependency: " + library)
         else:
             dependencies = subprocess.check_output([str(msys2_root() / "mingw64/bin/objdump.exe"), "-p", str(binary)], text=True)
-            allowed = {"kernel32.dll", "msvcrt.dll", "advapi32.dll", "ws2_32.dll", "secur32.dll", "bcrypt.dll", "ncrypt.dll", "user32.dll", "ole32.dll", "shell32.dll", "psapi.dll", "ntdll.dll", "crypt32.dll", "gdi32.dll", "winmm.dll", "shlwapi.dll"}
+            allowed = {"kernel32.dll", "msvcrt.dll", "advapi32.dll", "ws2_32.dll", "secur32.dll", "bcrypt.dll", "ncrypt.dll", "user32.dll", "ole32.dll", "oleaut32.dll", "vfw32.dll", "d3d11.dll", "dxgi.dll", "mfplat.dll", "shell32.dll", "psapi.dll", "ntdll.dll", "crypt32.dll", "gdi32.dll", "winmm.dll", "shlwapi.dll"}
             if "pei-x86-64" not in dependencies:
                 raise RuntimeError("FFmpeg is not Windows x64")
-            for library in re.findall(r"DLL Name:\s*(\S+)", dependencies):
-                if library.lower() not in allowed and not library.lower().startswith(("api-ms-win-", "ext-ms-win-")):
-                    raise RuntimeError("Non-system FFmpeg DLL: " + library)
+            # COM/capture libraries above come from the Windows SDK used by FFmpeg.
+            unexpected = sorted({library for library in re.findall(r"DLL Name:\s*(\S+)", dependencies)
+                if library.lower() not in allowed and not library.lower().startswith(("api-ms-win-", "ext-ms-win-"))})
+            if unexpected:
+                raise RuntimeError("Non-system FFmpeg DLL: " + ", ".join(unexpected))
         details[name] = {"sha256": digest(binary), "version": version.splitlines()[0]}
     protocols = subprocess.check_output([str(directory / ("ffmpeg" + suffix)), "-protocols"], text=True, stderr=subprocess.DEVNULL)
     if not re.search(r"^\s+https$", protocols, re.M):

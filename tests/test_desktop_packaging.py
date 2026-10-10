@@ -63,7 +63,7 @@ def test_compiler_location_uses_actual_environment(monkeypatch, tmp_path):
     assert msys2_root().as_posix() == "C:/msys64"
 
 
-@pytest.mark.parametrize("extra_dll", ["ncrypt.dll", "libwinpthread-1.dll"])
+@pytest.mark.parametrize("extra_dll", ["ncrypt.dll", "OLEAUT32.dll", "vfw32.dll", "libwinpthread-1.dll"])
 def test_windows_system_crypto_dependency_only(tmp_path, monkeypatch, extra_dll):
     import scripts.build_desktop as build
     for name in ("ffmpeg.exe", "ffprobe.exe"):
@@ -75,7 +75,7 @@ def test_windows_system_crypto_dependency_only(tmp_path, monkeypatch, extra_dll)
             return "Input:\n  https\n"
         return "file format pei-x86-64\nDLL Name: KERNEL32.dll\nDLL Name: " + extra_dll
     monkeypatch.setattr(build.subprocess, "check_output", output)
-    if extra_dll == "ncrypt.dll":
+    if extra_dll != "libwinpthread-1.dll":
         assert set(build.verify_binaries(tmp_path, "windows-x64")) == {"ffmpeg", "ffprobe"}
     else:
         with pytest.raises(RuntimeError, match="Non-system FFmpeg DLL"):
