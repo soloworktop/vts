@@ -1,11 +1,11 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=80", "setuptools-scm>=9,<10", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 # 发行名 = VTS；import 包名保持 video_to_summary（见 README「命名」一节）
 name = "vts"
-version = "0.1.0"
+dynamic = ["version"]
 description = "VTS — 视频 URL → 结构化 Markdown 笔记（字幕优先，BYOK 任意 OpenAI 兼容端点）"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -88,3 +88,8 @@ markers = [
     "e2e: 端到端测试（真实 uvicorn + fakes 替换网络边界；浏览器用例需 playwright install chromium）",
     "live: 真实边界端到端（真实下载/转写/LLM，读 .env 配置；默认跳过，VTS_LIVE_E2E=1 运行）",
 ]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0.dev0"
+version_file = "src/video_to_summary/_scm_version.py"
+tag_regex = '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?)$'
