@@ -5,6 +5,7 @@
 """
 
 import concurrent.futures
+import os
 
 from video_to_summary import crypto
 
@@ -28,7 +29,9 @@ def test_concurrent_first_use_single_key_and_decryptable(tmp_path, monkeypatch):
     assert not any(name.startswith(".enc_key") for name in files)
     key_file = tmp_path / "enc_key"
     assert key_file.exists()
-    assert key_file.stat().st_mode & 0o777 == 0o600
+    # Windows chmod only maps the read-only bit; access is controlled by profile ACLs.
+    if os.name != "nt":
+        assert key_file.stat().st_mode & 0o777 == 0o600
 
     # 所有线程产物都能解回原文（密钥环境一致）
     for i, ct in enumerate(ciphertexts):

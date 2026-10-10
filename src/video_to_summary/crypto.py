@@ -2,7 +2,7 @@
 
 设计：
 - 加密密钥来源：环境变量 ``VIDEO_TO_SUMMARY_ENC_KEY``（Fernet 密钥，base64 文本）；
-  未设置时首次使用自动生成并保存到数据库同目录的 ``enc_key`` 文件（chmod 0o600，
+  未设置时首次使用自动生成并保存到数据库同目录的 ``enc_key`` 文件（POSIX chmod 0o600，Windows 继承目录 ACL，
   随 ``data/`` 一起被 .gitignore 排除）。
 - 未安装 ``cryptography`` 时拒绝保存密钥，绝不降级为明文。
 - 密文带前缀 ``enc:v1:``；解密失败（密钥变更/数据损坏）时抛 ``SecretDecryptError``，
@@ -60,7 +60,7 @@ def _get_fernet():
             if not key_path.exists():
                 key_path.parent.mkdir(parents=True, exist_ok=True)
                 # 原子落盘（mkstemp + os.replace）：绝不出现半写的 enc_key；
-                # chmod 在 replace 前对临时文件执行，落盘即 0600
+                # chmod 在 replace 前执行；POSIX 落盘即 0600，Windows 使用目录继承 ACL
                 fd, tmp_name = tempfile.mkstemp(dir=key_path.parent, prefix=".enc_key.")
                 try:
                     with os.fdopen(fd, "wb") as fh:
