@@ -44,6 +44,10 @@ def test_spawned_backend_ready_and_cleanup(tmp_path, monkeypatch):
         assert rejected.value.code == 401
         with urlopen(backend.origin) as response:
             assert b'name="vts-desktop"' in response.read()
+            assert "frame-ancestors 'none'" in response.headers['Content-Security-Policy']
+        with urlopen(backend.origin + '/guide') as response:
+            assert "frame-ancestors 'self'" in response.headers['Content-Security-Policy']
+            assert b'<section' in response.read()
     finally:
         backend.stop()
     assert not backend.process.is_alive()

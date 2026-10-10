@@ -64,6 +64,13 @@ def main():
                         time.sleep(0.1)
                     else:
                         raise TimeoutError("React initialization failed in native WebView")
+                    window.evaluate_js("document.getElementById('guideBtn').click()")
+                    while time.monotonic() < deadline:
+                        if window.evaluate_js("Boolean(document.getElementById('guideFrame')?.contentDocument?.querySelector('section'))"):
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise TimeoutError("User guide failed to load inside native window")
                     window.evaluate_js("window.pywebview.api.copy_text('VTS desktop smoke', " + json.dumps(backend.token) + ").then(ok => { window.__DESKTOP_SMOKE_OK__ = Boolean(ok); })")
                     while time.monotonic() < deadline:
                         if window.evaluate_js("Boolean(window.__DESKTOP_SMOKE_OK__)"):

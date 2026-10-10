@@ -79,7 +79,8 @@ async def _serve(connection, paths, bootstrap_nonce):
             return HTMLResponse(page.replace("<head>", f'<head><meta name="vts-desktop" content="{bootstrap_nonce}">', 1), headers={"Cache-Control": "no-store", "Content-Security-Policy": "frame-ancestors 'none'; frame-src 'self'; object-src 'none'; base-uri 'self'"})
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
-        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'; frame-src 'self'; object-src 'none'; base-uri 'self'"
+        ancestors = "'self'" if request.url.path == "/guide" else "'none'"
+        response.headers["Content-Security-Policy"] = f"frame-ancestors {ancestors}; frame-src 'self'; object-src 'none'; base-uri 'self'"
         return response
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
