@@ -140,15 +140,19 @@ PR、完成双平台 CI 和干净机器首次安装验收。
 
 ## 当前验证记录与待验收项
 
-离线全量回归 516 个用例通过（排除 9 个 live/network 用例），前端类型检查与禁词门禁
+离线全量回归 526 个用例通过（排除 9 个 live/network 用例），前端类型检查与禁词门禁
 通过。两个工作流通过 actionlint；全新哈希锁安装及 wheel/sdist 非 editable smoke 通过。
 
 本机 macOS arm64 已通过 `.app` 和 DMG 挂载复制后的真实 WKWebView、React 初始化、
 原生桥/剪贴板、Fernet、SQLite FTS5、health/版本/JS/CSS/手册、FFmpeg 音频转换及退出
-回收检查。开发 DMG 约 55 MiB；带 FFmpeg 缓存的冻结加 DMG 约 51 秒，首轮 macOS CI 冷构建（FFmpeg 编译加冻结）为 275 秒，
+回收检查。开发 DMG 约 55 MiB；本次含版本元数据校准的缓存冻结加 DMG 约 61 秒。
+最新 Windows/macOS CI 各 84 项桌面测试通过，真实 WebView2/WKWebView、桥/剪贴板、
+手册、包版本及退出时后端与持续运行的 FFmpeg 子进程回收均通过。缓存冻结耗时分别
+为 36/37 秒；首轮 macOS CI 冷构建（FFmpeg 编译加冻结）为 275 秒，
+Windows 首次媒体源码编译约 13 分钟（冻结另计），
 两者构建范围不同。`build/desktop/metrics.json` 按各产物记录字节数和本次总构建时长。
 
-Windows 原生冻结、EXE 安装卸载、WebView2 和进程回收必须由 Windows CI/机器验证；
+Windows EXE 安装卸载和 Tag/draft Release 全流程仍待验收；
 干净 Windows 11 与 macOS 14+ 下载首开、SmartScreen/Gatekeeper 的人工验收仍需完成。
 联网站点和实际 BYOK 服务受端点变化影响，应另外使用现有 live 测试开关验收。
 以上待验收项未通过前，不发布首个正式桌面版本。
