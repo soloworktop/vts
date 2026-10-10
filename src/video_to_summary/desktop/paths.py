@@ -16,7 +16,7 @@ class DesktopPaths:
 
     @classmethod
     def resolve(cls):
-        default = resolve_database_path(use_user_data=True).parent / "desktop"
+        default = resolve_database_path(use_user_data=True, environ=os.environ).parent / "desktop"
         database = resolve_database_path(env=os.environ.get("VIDEO_TO_SUMMARY_DB") or str(default / "app.db"))
         data = database.expanduser().resolve().parent
         return cls(database.expanduser().resolve(),

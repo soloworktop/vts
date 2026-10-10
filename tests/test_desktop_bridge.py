@@ -11,7 +11,7 @@ def bridge(tmp_path, monkeypatch):
     source.mkdir(parents=True)
     product = source / "中文 摘要.md"
     product.write_text("# test", encoding="utf-8")
-    backend = SimpleNamespace(origin="http://127.0.0.1:1234", token="example-session", version="test",
+    backend = SimpleNamespace(origin="http://127.0.0.1:1234", token="example-session", bootstrap_nonce="example-bootstrap", version="test",
         paths=SimpleNamespace(output=tmp_path / "output", database=tmp_path / "app.db"),
         request=lambda _: {"result_paths": {"summary": str(product)}})
     instance = Bridge(backend, lambda: None)
@@ -36,7 +36,7 @@ def test_export_url_boundary(bridge, url):
 
 
 def test_export_cancel_and_redirect(bridge):
-    assert bridge.export_product("/api/v1/logs/export", "logs.txt") == {"saved": False, "cancelled": True}
+    assert bridge.export_product("/api/v1/logs/export", "logs.txt", "example-session") == {"saved": False, "cancelled": True}
     with pytest.raises(ValueError, match="重定向"):
         NoRedirects().redirect_request(None, None, 302, "found", {}, "https://example.test/")
 
@@ -44,16 +44,24 @@ def test_export_cancel_and_redirect(bridge):
 def test_only_actual_products_open(bridge, monkeypatch, tmp_path):
     opened = []
     monkeypatch.setattr(bridge, "_open", opened.append)
-    assert bridge.open_job_output("a" * 32, "summary")
+    assert bridge.open_job_output("a" * 32, "summary", "example-session")
     assert opened[0].name == "中文 摘要.md"
     outside = tmp_path / "program.exe"
     outside.write_bytes(b"program")
     bridge._backend.request = lambda _: {"result_paths": {"summary": str(outside)}}
     with pytest.raises(PermissionError):
-        bridge.open_job_output("a" * 32, "summary")
+        bridge.open_job_output("a" * 32, "summary", "example-session")
     with pytest.raises(PermissionError):
-        bridge.reveal_in_finder(str(outside))
+        bridge.reveal_in_finder(str(outside), "example-session")
 
 
 def test_no_public_backend_capabilities(bridge):
     assert not any(name in vars(bridge) for name in ("backend", "window", "on_exit", "saved"))
+
+
+def test_remote_frame_cannot_use_main_page_bridge(bridge):
+    with pytest.raises(PermissionError, match="caller"):
+        bridge.get_session()
+    with pytest.raises(PermissionError, match="caller"):
+        bridge.copy_text("attack")
+    assert bridge.get_session("example-bootstrap")["token"] == "example-session"

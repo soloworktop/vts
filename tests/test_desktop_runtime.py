@@ -79,3 +79,16 @@ def test_shutdown_preserves_work_and_cancel_intent(tmp_path, monkeypatch):
         tasks._jobs.clear()
         tasks._cancel_flags.clear()
         db.reset()
+
+
+def test_desktop_does_not_inherit_model_secrets(monkeypatch):
+    from video_to_summary.desktop.backend import _clear_inherited_model_config
+    for key in ("SUMMARY_API_KEY", "ASR_API_KEY", "OPENAI_API_KEY", "LLM_BASE_URL", "POLISH_TRANSCRIPT"):
+        monkeypatch.setenv(key, "fixture-value")
+    monkeypatch.setenv("VIDEO_TO_SUMMARY_DB", "explicit.db")
+    monkeypatch.setenv("VTS_USER_AGENT", "explicit-agent")
+    _clear_inherited_model_config()
+    import os
+    assert not any(key.startswith(("SUMMARY_", "ASR_", "OPENAI_", "LLM_", "POLISH_")) for key in os.environ)
+    assert os.environ["VIDEO_TO_SUMMARY_DB"] == "explicit.db"
+    assert os.environ["VTS_USER_AGENT"] == "explicit-agent"

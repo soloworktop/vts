@@ -5,7 +5,6 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from packaging.version import Version
 
 ROOT = Path(__file__).resolve().parents[1]
 TAG = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$")
@@ -23,7 +22,7 @@ def release_version(tag, sha):
     numbers = [int(major), int(minor), int(patch), int(rc or 0)]
     if any(n > 65535 for n in numbers):
         raise ValueError("版本号超出 Windows 数字版本范围")
-    return {"display": tag, "package": str(Version(tag[1:])), "windows": ".".join(map(str, numbers)),
+    return {"display": tag, "package": f"{major}.{minor}.{patch}" + (f"rc{rc}" if rc else ""), "windows": ".".join(map(str, numbers)),
             "macos": f"{major}.{minor}.{patch}", "sha": sha, "prerelease": bool(rc)}
 
 

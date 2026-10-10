@@ -307,7 +307,6 @@ def test_scheduler_lock_acquire_idempotent_and_release(tasks_db):
 
 def test_scheduler_lock_conflict(tasks_db):
     """同一锁文件被另一句柄持有（等价第二进程）时，acquire 必须给出明确错误。"""
-    import fcntl
     import os
 
     web_tasks._scheduler_lock_handles.clear()
@@ -316,7 +315,7 @@ def test_scheduler_lock_conflict(tasks_db):
     # 模拟「另一个进程」已持锁的场景
     other_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(other_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        web_tasks._lock_exclusive(other_fd)
         web_tasks._scheduler_lock_handles.clear()
         with pytest.raises(web_tasks.SingleInstanceError, match="单进程"):
             web_tasks.acquire_scheduler_lock()
@@ -336,9 +335,9 @@ def test_scheduler_lock_blocks_second_process(tasks_db):
     holder = subprocess.Popen(
         [
             sys.executable, "-c",
-            "import fcntl, os, time\n"
+            "import os, time\nfrom video_to_summary.web.tasks import _lock_exclusive\n"
             f"fd = os.open({str(lock_path)!r}, os.O_CREAT | os.O_RDWR, 0o600)\n"
-            "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+            "_lock_exclusive(fd)\n"
             "print('held', flush=True)\n"
             "time.sleep(15)\n",
         ],
@@ -376,3 +375,11 @@ def test_lifespan_acquires_and_releases_lock(tasks_db, monkeypatch):
         assert web_tasks.scheduler_lock_path().name in str(web_tasks._scheduler_lock_handles) or web_tasks._scheduler_lock_handles
     assert not web_tasks._scheduler_lock_handles
     web_tasks._scheduler_lock_handles.clear()
+
+
+def test_completion_cannot_erase_persisted_cancel_request(tasks_db):
+    job = web_tasks.create_job({"url": "https://example.test/v"})
+    job.mark_running()
+    assert web_tasks.cancel_job(job.job_id)
+    assert job.mark_completed({"summary": "/tmp/late.md"}) is False
+    assert _db_status(job.job_id) == JobStatus.CANCELLED

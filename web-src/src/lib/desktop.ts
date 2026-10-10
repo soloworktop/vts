@@ -11,23 +11,40 @@ export interface PyWebviewApi {
   copy_text: (text: string) => Promise<boolean>;
   request_exit: () => Promise<boolean>;
 }
-declare global { interface Window { pywebview?: { api?: PyWebviewApi } } }
+type NativeApi = { [K in keyof PyWebviewApi]: (...args: unknown[]) => ReturnType<PyWebviewApi[K]> };
+declare global { interface Window { pywebview?: { api?: NativeApi } } }
 let session: DesktopSession | undefined;
-export function desktopApi() { return window.pywebview?.api; }
+export function desktopApi(): PyWebviewApi | undefined {
+  const native = window.pywebview?.api;
+  if (!native || !session) return undefined;
+  const proof = session.token;
+  return {
+    get_session: () => Promise.resolve(session!),
+    pick_file: (kind = "media") => native.pick_file(kind, proof),
+    export_product: (url, name) => native.export_product(url, name, proof),
+    reveal_in_finder: (path) => native.reveal_in_finder(path, proof),
+    open_job_output: (id, key) => native.open_job_output(id, key ?? null, proof),
+    open_external: (url) => native.open_external(url, proof),
+    copy_text: (text) => native.copy_text(text, proof),
+    request_exit: () => native.request_exit(proof),
+  };
+}
 export function isDesktopApp() { return Boolean(session); }
 export function sessionHeaders(): Record<string, string> {
   return session ? { Authorization: `Bearer ${session.token}` } : {};
 }
 export async function initializeDesktop(): Promise<void> {
   if (!document.querySelector('meta[name="vts-desktop"]')) return;
-  if (!desktopApi()?.get_session) {
+  if (!window.pywebview?.api?.get_session) {
     await new Promise<void>((resolve, reject) => {
       const ready = () => { clearTimeout(timer); resolve(); };
       const timer = setTimeout(() => { window.removeEventListener("pywebviewready", ready); reject(new Error("桌面桥初始化超时，请重启 VTS")); }, 30_000);
       window.addEventListener("pywebviewready", ready, { once: true });
     });
   }
-  session = await desktopApi()!.get_session();
+  const marker = document.querySelector<HTMLMetaElement>('meta[name="vts-desktop"]')!;
+  session = await window.pywebview!.api!.get_session(marker.content);
+  marker.content = "ready";
   if (session.origin !== location.origin || !session.token) throw new Error("桌面会话无效");
   document.addEventListener("click", (event) => {
     const anchor = (event.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;

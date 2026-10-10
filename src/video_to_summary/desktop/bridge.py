@@ -1,5 +1,6 @@
 """Native bridge: trusted main page only, narrow export and filesystem capabilities."""
 import os
+import hmac
 import re
 import shutil
 import subprocess
@@ -25,24 +26,27 @@ class Bridge:
         self._window = None
         self._saved = set()
 
-    def _check(self):
+    def _check(self, proof, *, bootstrap=False):
         if self._window is None:
             raise PermissionError("desktop bridge is not ready")
+        expected = self._backend.bootstrap_nonce if bootstrap else self._backend.token
+        if not isinstance(proof, str) or not hmac.compare_digest(proof, expected):
+            raise PermissionError("untrusted desktop caller")
         url = urlsplit(self._window.get_current_url() or "")
         if f"{url.scheme}://{url.netloc}" != self._backend.origin or url.path != "/":
             raise PermissionError("untrusted desktop page")
 
-    def get_session(self):
-        self._check()
+    def get_session(self, proof=""):
+        self._check(proof, bootstrap=True)
         return {"origin": self._backend.origin, "token": self._backend.token, "version": self._backend.version}
 
-    def pick_file(self, kind="media"):
-        self._check()
+    def pick_file(self, kind="media", proof=""):
+        self._check(proof)
         if kind not in ("media", "cookies"):
             raise ValueError("unsupported file kind")
         import webview
         selected = self._window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False)
-        self._check()
+        self._check(proof)
         if not selected:
             return None
         path = Path(selected[0]).resolve(strict=True)
@@ -70,14 +74,14 @@ class Bridge:
             raise ValueError("unsupported export endpoint")
         return absolute
 
-    def export_product(self, url, name):
-        self._check()
+    def export_product(self, url, name, proof=""):
+        self._check(proof)
         absolute = self._export_url(url)
         # Filename is only a suggestion; never allow it to change dialog directories.
         name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", str(name))[:180].strip(". ") or "export.txt"
         import webview
         selected = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name)
-        self._check()
+        self._check(proof)
         if not selected:
             return {"saved": False, "cancelled": True}
         destination = Path(selected if isinstance(selected, str) else selected[0]).expanduser().resolve()
@@ -119,13 +123,13 @@ class Bridge:
             raise PermissionError("不是可打开的任务产物")
         return target
 
-    def open_job_output(self, job_id, product_key=None):
-        self._check()
+    def open_job_output(self, job_id, product_key=None, proof=""):
+        self._check(proof)
         self._open(self._job_path(job_id, product_key))
         return True
 
-    def reveal_in_finder(self, path):
-        self._check()
+    def reveal_in_finder(self, path, proof=""):
+        self._check(proof)
         target = Path(path).resolve(strict=True)
         if target not in self._saved:
             raise PermissionError("只允许显示本次保存的文件")
@@ -140,16 +144,16 @@ class Bridge:
         else:
             raise RuntimeError("不支持的桌面平台")
 
-    def open_external(self, url):
-        self._check()
+    def open_external(self, url, proof=""):
+        self._check(proof)
         parsed = urlsplit(url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("只允许打开 HTTP(S) 外链")
         webbrowser.open(url)
         return True
 
-    def copy_text(self, text):
-        self._check()
+    def copy_text(self, text, proof=""):
+        self._check(proof)
         if not isinstance(text, str) or len(text) > 10_000_000:
             raise ValueError("clipboard text too large")
         if sys.platform == "darwin":
@@ -192,7 +196,7 @@ class Bridge:
                 user.CloseClipboard()
         return False
 
-    def request_exit(self):
-        self._check()
+    def request_exit(self, proof=""):
+        self._check(proof)
         self._on_exit()
         return True

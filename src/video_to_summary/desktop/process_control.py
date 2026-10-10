@@ -13,6 +13,7 @@ class ProcessTree:
     def __init__(self, process):
         self.process = process
         self.handle = None
+        self.group = None
         if sys.platform == "win32":
             import ctypes
             from ctypes import wintypes
@@ -53,7 +54,9 @@ class ProcessTree:
         elif sys.platform != "win32" and self.process.pid:
             try:
                 # Never signal the GUI's own process group during early startup.
-                if os.getpgid(self.process.pid) == self.process.pid:
+                if self.group is not None:
+                    os.killpg(self.group, signal.SIGKILL)
+                elif os.getpgid(self.process.pid) == self.process.pid:
                     os.killpg(self.process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass

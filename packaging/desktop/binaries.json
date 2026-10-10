@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "mode": "source",
+  "version": "9.0.2",
+  "license": "LGPL-2.1-or-later",
+  "reason": "Native TLS preserves HTTPS/HLS support; sources and build recipe are pinned instead of redistributing nonfree or TLS-less vendor binaries.",
+  "sources": [
+    {
+      "url": "https://github.com/eli4n/ffmpeg-build/releases/download/9.0.2/ffmpeg-9.0.2.tar.xz",
+      "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+    },
+    {
+      "url": "https://github.com/eli4n/ffmpeg-build/releases/download/9.0.2/lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    {
+      "url": "https://github.com/eli4n/ffmpeg-build/releases/download/9.0.2/zlib-1.3.2.tar.gz",
+      "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+    }
+  ],
+  "targets": {
+    "macos-arm64": {
+      "architecture": "arm64",
+      "tls": "securetransport",
+      "minimum_os": "14.0"
+    },
+    "windows-x64": {
+      "architecture": "AMD64",
+      "tls": "schannel",
+      "minimum_os": "Windows 11"
+    }
+  },
+  "recipe": "packaging/desktop/build_ffmpeg.sh",
+  "upstream_recipe": "https://github.com/eli4n/ffmpeg-build/tree/1b589298048985c5703dd190b836a992e6477a6e"
+}

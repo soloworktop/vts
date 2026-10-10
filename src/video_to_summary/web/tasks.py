@@ -353,6 +353,14 @@ class Job:
         return False
 
     def mark_completed(self, result_paths: dict[str, str], elapsed: float | None = None) -> bool:
+        with _runtime_lock:
+            current = get_job(self.job_id, refresh=True)
+            if current is not None and current.status == JobStatus.RUNNING and _has_cancel_requested(current):
+                self.mark_cancelled("cancelled by user", expected_status=JobStatus.RUNNING)
+                return False
+            return self._mark_completed_locked(result_paths, elapsed)
+
+    def _mark_completed_locked(self, result_paths: dict[str, str], elapsed: float | None = None) -> bool:
         """任务完成终态：running → completed 原子转换，状态与终态事件**同一次落库**。
 
         elapsed 可选（旧调用点不传时仍只推 FINALIZED，行为不变）。

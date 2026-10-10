@@ -37,9 +37,9 @@ def _open_completed_detail(ui_page, goto_console, submit_local_job, wait_ui_stat
 def test_ui_export_and_summary_edit(ui_page, goto_console, submit_local_job, wait_ui_status, e2e_server):
     _open_completed_detail(ui_page, goto_console, submit_local_job, wait_ui_status)
 
-    # 「下载」「复制」「常驻格式选择」都已取消；「导出」+「编辑」就绪，菜单默认收起
+    # 「下载」「常驻格式选择」不常驻；复制、「导出」+「编辑」就绪，菜单默认收起
     assert ui_page.locator("#downloadProductBtn").count() == 0
-    assert ui_page.locator("#copyProductBtn").count() == 0
+    assert ui_page.locator("#copyProductBtn").is_enabled()
     assert ui_page.locator("#exportFormat").count() == 0
     export_btn = ui_page.locator("#exportProductBtn")
     export_btn.wait_for(state="attached")
@@ -163,9 +163,8 @@ def test_ui_export_shows_feedback_toast(ui_page, goto_console, submit_local_job,
     assert "浏览器下载目录" in toast.inner_text()
 
 
-def test_ui_export_desktop_form_shows_save_panel_hint(ui_page, goto_console, submit_local_job, wait_ui_status, e2e_server):
-    """桌面形态（window.pywebview 存在但无导出桥/旧包）：回退真实 URL 下载，
-    toast 诚实提示「请在系统保存框选择保存位置」。"""
+def test_ui_untrusted_legacy_bridge_keeps_browser_export(ui_page, goto_console, submit_local_job, wait_ui_status, e2e_server):
+    """无可信桌面页面标记的旧桥不获得桌面会话，继续正常浏览器导出。"""
     submit_local_job("UI 桌面导出任务")
     wait_ui_status("completed")
     ui_page.click('.nav-item[data-view="history"]')
@@ -175,7 +174,20 @@ def test_ui_export_desktop_form_shows_save_panel_hint(ui_page, goto_console, sub
     ui_page.evaluate("window.pywebview = { api: {} };")
     with ui_page.expect_download():
         _export_as(ui_page, "md")
-    ui_page.wait_for_selector(".toast:has-text('系统保存框')", state="visible")
+    ui_page.wait_for_selector(".toast:has-text('浏览器下载目录')", state="visible")
+
+
+def _install_desktop_bridge(page, script):
+    def index(route):
+        response = route.fetch()
+        route.fulfill(response=response, body=response.text().replace("<head>", '<head><meta name="vts-desktop" content="fixture-bootstrap">'))
+    page.route(page.url.split("#")[0], index)
+    session = "get_session: async () => ({origin: location.origin, token: 'fixture-desktop-session', version: 'test'}),"
+    page.add_init_script(script.replace("api: {", "api: {" + session, 1))
+    page.reload()
+    page.wait_for_function("window.__APP_READY__ === true")
+    page.click('.nav-item[data-view="history"]')
+    page.wait_for_selector("#productBody.rendered")
 
 
 def test_ui_export_desktop_bridge_shows_completion_and_open(ui_page, goto_console, submit_local_job, wait_ui_status, e2e_server):
@@ -187,7 +199,7 @@ def test_ui_export_desktop_bridge_shows_completion_and_open(ui_page, goto_consol
     ui_page.wait_for_selector("#historyDetailCard:not(.hidden)")
     ui_page.wait_for_selector("#productBody.rendered")
 
-    ui_page.evaluate("""
+    _install_desktop_bridge(ui_page, """
       window.pywebview = { api: {
         export_product: (url, name) => Promise.resolve({saved: true, cancelled: false, path: "/fake/桌面桥导出任务.md"}),
         reveal_in_finder: (p) => { window.__revealed = p; return true; },
@@ -209,7 +221,7 @@ def test_ui_export_desktop_bridge_failure_shows_error(ui_page, goto_console, sub
     ui_page.wait_for_selector("#historyDetailCard:not(.hidden)")
     ui_page.wait_for_selector("#productBody.rendered")
 
-    ui_page.evaluate("""
+    _install_desktop_bridge(ui_page, """
       window.pywebview = { api: {
         export_product: (url, name) => Promise.resolve({saved: false, cancelled: false, path: ""}),
         reveal_in_finder: () => true,

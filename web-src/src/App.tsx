@@ -48,9 +48,17 @@ export function App() {
       inProgress = true;
       try {
         if (!(await allowDesktopExit())) return;
-        const response = await fetchJobs({ limit: 200 });
-        if (response.jobs.some((job) => job.status === "running" || job.status === "pending")) setExitOpen(true);
-        else await desktopApi()!.request_exit();
+        let offset = 0;
+        while (true) {
+          const response = await fetchJobs({ limit: 200, offset });
+          if (response.jobs.some((job) => job.status === "running" || job.status === "pending")) {
+            setExitOpen(true);
+            return;
+          }
+          offset += response.jobs.length;
+          if (!response.jobs.length || offset >= response.total) break;
+        }
+        await desktopApi()!.request_exit();
       } catch { setExitOpen(true); }
       finally { inProgress = false; }
     };
