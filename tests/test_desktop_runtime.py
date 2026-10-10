@@ -100,6 +100,9 @@ def test_desktop_does_not_inherit_model_secrets(monkeypatch):
 
 def test_process_tree_ignores_macos_group_permission_after_backend_exit(monkeypatch):
     import sys
+    import pytest
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups are unavailable on Windows")
     from video_to_summary.desktop import process_control
 
     class ExitedProcess:
@@ -122,6 +125,8 @@ def test_process_tree_ignores_macos_group_permission_after_backend_exit(monkeypa
 def test_process_tree_reports_group_permission_while_backend_alive(monkeypatch):
     import sys
     import pytest
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups are unavailable on Windows")
     from video_to_summary.desktop import process_control
 
     class LiveProcess:
