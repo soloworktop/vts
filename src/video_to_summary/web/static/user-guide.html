@@ -240,6 +240,7 @@ footer{
       <a href="#tasks"><span class="ico">📡</span>任务与结果</a>
       <a href="#settings"><span class="ico">⚙️</span>设置与模板</a>
       <a href="#faq"><span class="ico">❓</span>常见问题</a>
+      <a href="#desktop"><span class="ico">🖥️</span>桌面客户端</a>
       <a href="#privacy"><span class="ico">🔒</span>数据与隐私</a>
     </nav>
     <div class="side-foot">
@@ -354,7 +355,7 @@ footer{
           <h3>⌨️ 怎么配</h3>
           <ol>
             <li>「设置 → LLM 配置」，填好点保存，立即生效；</li>
-            <li>习惯环境变量的话，也可以写进仓库根目录的 <code>.env</code>（<code>SUMMARY_API_KEY</code> 等）后重启服务，或点「从 .env 导入」一次性迁入。</li>
+            <li>Web/CLI 习惯环境变量的话，也可以写进仓库根目录的 <code>.env</code>（<code>SUMMARY_API_KEY</code> 等）后重启服务，或点「从 .env 导入」一次性迁入。</li>
           </ol>
           <div class="note info"><b>Key 的安全</b>：Key 加密落库，界面只显示掩码，不会明文返回。</div>
         </div>
@@ -452,15 +453,15 @@ footer{
         </details>
         <details class="faq">
           <summary>任务失败提示「LLM 调用被拒绝（认证失败）」？</summary>
-          <div class="faq-body">到「设置 → LLM 配置」逐项检查：<b>API Key</b> 是否正确、<b>base_url</b> 是否以 <code>http(s)://</code> 开头、<b>模型名</b>拼写是否为该端点支持的（如 <code>deepseek-chat</code>）。</div>
+          <div class="faq-body">到「设置 → LLM 配置」逐项检查：<b>API Key</b> 是否正确、<b>base_url</b> 是否以 <code>http(s)://</code> 开头、<b>模型名</b>拼写是否为该端点支持的。</div>
         </details>
         <details class="faq">
           <summary>任务生成了转写但没有总结？</summary>
-          <div class="faq-body">这是无 Key 降级：推理槽没配 Key 时只出转写。补好 Key 后点「重新生成」即可，转写部分走缓存，不会重复消耗。</div>
+          <div class="faq-body">这是无 Key 降级：推理槽没配 Key 时只出转写。补好 Key 后可重试；重试会清空产物并重新处理，编辑稿也可能丢失。退出后的启动恢复才复用已有缓存。</div>
         </details>
         <details class="faq">
           <summary>浏览器上传失败？</summary>
-          <div class="faq-body">常见原因：文件类型不支持（音视频扩展名白名单），或超过大小上限（默认约 2GB）。本机部署可以不走上传，直接用「浏览…」读本地路径。</div>
+          <div class="faq-body">常见原因：文件类型不支持（音视频扩展名白名单），或超过大小上限（默认约 2GB）。桌面客户端可不走上传，直接用原生「浏览…」选择本地文件。</div>
         </details>
         <details class="faq">
           <summary>端口被占了 / 数据存在哪？</summary>
@@ -469,6 +470,14 @@ footer{
       </section>
 
       <!-- 07 数据与隐私 -->
+      <section id="desktop">
+        <div class="sec-head"><span class="num">桌面</span><h2>桌面客户端</h2></div>
+        <p>桌面目标为 Windows 11 x64 与 macOS 14+ Apple Silicon。Windows 另需 Microsoft WebView2 Runtime；首版无发布者签名、公证或自动更新。</p>
+        <p>首次在设置中填写 OpenAI 兼容推理与语音识别端点；不会继承源码目录的 .env。需要迁移时把 .env 放到桌面数据库目录后显式导入。历史 ZIP 不迁移 Key 或全局配置。</p>
+        <p>原生选择器支持本地音频与视频；任务准备 MP3/WAV，原文件不会修改。关闭窗口先处理未保存编辑稿，再确认退出；未完成任务下次启动恢复，已取消任务保持取消。重试会清空产物，恢复则复用完整缓存。</p>
+        <p>数据位于 Windows 的 %LOCALAPPDATA%\VTS\desktop\ 或 macOS 的 ~/Library/Application Support/VTS/desktop/，包含数据库、enc_key、output、日志与 WebView 数据。关闭应用后备份整个目录和原始媒体；升级/卸载默认保留数据。Key 必须连同 enc_key 备份。</p>
+      </section>
+
       <section id="privacy">
         <div class="sec-head"><span class="num">07</span><h2>数据与隐私</h2></div>
         <p class="sec-lead">所有数据都保存在你自己的机器上；VTS 没有云端存储、没有遥测、没有用量上报。</p>

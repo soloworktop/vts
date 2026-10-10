@@ -22,3 +22,4 @@
 
 6. 桌面启动先等待 `pywebviewready` 和内存会话；XHR、HEAD 与导出统一鉴权，禁止持久化会话 Token。
 7. 桌面退出经过编辑稿守卫及未完成任务确认；新增原生方法必须返回 Promise。
+8. 原生桥必须经 `desktopApi()` 包装，调用证明仅驻内存；首页 nonce 用于首次握手，不能把 Token 持久化。

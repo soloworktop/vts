@@ -53,7 +53,7 @@ pnpm build            # tsc --noEmit && vite build && 复制产物到 src/video_
 ## 关键约定
 
 - **API 一律 `/api/v1`**：改端点先改 `api/endpoints.ts` + `api/types.ts`，再同步
-  `README.md` 接口表（`tests/test_doc_consistency.py` 强制双向一致）。
+  `docs/api.md` 接口表（`tests/test_doc_consistency.py` 强制双向一致）。
 - **能力驱动渲染**：`GET /api/v1/capabilities` 返回插件声明的可选能力集合（本构建为
   空对象）；前端据此渲染插件提供的可选功能，未声明的能力完全不渲染（不是 disabled）。
 - **未知进度事件忽略**：`lib/events.ts::KNOWN_EVENT_NAMES` 之外的事件名一律忽略，
@@ -62,3 +62,15 @@ pnpm build            # tsc --noEmit && vite build && 复制产物到 src/video_
   `historyExportUrl`），WKWebView 下 Blob 会被内联渲染不落盘。
 - **E2E**：`bash scripts/e2e.sh`（会先构建前端）。UI e2e 依赖稳定 DOM id（与旧版一致），
   改 id 时必须同步 `tests/e2e/` 用例。
+
+## 桌面复用
+
+桌面和浏览器使用同一份 React 产物；桌面开发入口为
+`python -m video_to_summary.desktop`，运行前仍需 `pnpm build`。首页携带启动 nonce，
+`main.tsx` 等待 `pywebviewready` 后握手，才发起 API。会话只留内存；JSON/XHR/HEAD/
+下载统一从 API 层添加鉴权。原生桥经 `desktopApi()` 包装并传入调用证明，禁止直接
+散落 `window.pywebview.api` 调用。外链由系统浏览器打开。
+
+退出事件 `vts:desktop-close` 先调用编辑稿守卫，再分页检查未完成任务并确认。
+原生冻结产物 smoke 与浏览器桥契约 e2e 分别验证；浏览器 mock 通过不等于原生引擎
+通过。完整构建与平台约束见 [桌面指南](../docs/desktop.md)。
