@@ -88,7 +88,9 @@ macOS 构建需 Xcode Command Line Tools。正式包使用干净检出和已有�
 `python scripts/build_desktop.py --tag vMAJOR.MINOR.PATCH --installer`。
 开发构建带 SCM 开发版本；不应作为正式 Release 发布。桌面图标的矢量源文件为
 `packaging/desktop/icon.svg`；`icon.icns` 用于 macOS Dock，`icon.ico` 用于 Windows
-程序与安装器。`icon.png` 是 1024 像素预览图。图形以播放三角形和三行摘要表示“视频转笔记”。
+程序与安装器。`icon.png` 是 1024 像素预览图。图标使用浅色主题的暖纸底
+`#f3efe9`、珊瑚色 `#ff6752` → `#ffa25c` 渐变和深色字 `#211d19`，将播放标记与
+「VTS」字标组合。
 
 冻结为 onedir/windowed，资源只来自显式清单；安装器只携带应用目录。桌面二进制不加入
 wheel 或 Docker。构建目录为 `build/desktop/`，应用及安装器为 `desktop-dist/`，

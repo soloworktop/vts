@@ -1,11 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="VTS application icon">
   <defs>
-    <linearGradient id="background" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#10223b"/>
-      <stop offset="1" stop-color="#172f4c"/>
+    <linearGradient id="coral" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff6752"/>
+      <stop offset="1" stop-color="#ffa25c"/>
     </linearGradient>
   </defs>
-  <rect x="48" y="48" width="928" height="928" rx="200" fill="url(#background)"/>
-  <path d="M284 289 Q284 263 307 279 L584 477 Q608 495 584 514 L307 745 Q284 761 284 735 Z" fill="#54d8ce"/>
-  <path d="M628 361 H778 M628 502 H778 M628 643 H735" fill="none" stroke="#f4f8fb" stroke-width="48" stroke-linecap="round"/>
+  <rect x="48" y="48" width="928" height="928" rx="200" fill="#f3efe9" stroke="#ded5ca" stroke-width="12"/>
+  <circle cx="512" cy="367" r="218" fill="url(#coral)"/>
+  <path d="M449 253 Q449 231 469 245 L623 350 Q641 365 623 380 L469 489 Q449 503 449 481 Z" fill="#fff"/>
+  <g fill="none" stroke="#211d19" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M244 670 L303 804 L362 670"/>
+    <path d="M420 670 H552 M486 670 V804"/>
+    <path d="M771 690 C740 655 665 659 650 691 C626 743 787 723 775 770 C762 818 675 823 645 786"/>
+  </g>
 </svg>

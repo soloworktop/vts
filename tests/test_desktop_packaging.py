@@ -57,7 +57,9 @@ def test_freezing_has_explicit_resources_and_hashed_locks():
 
 def test_desktop_icon_assets_are_wired_into_both_packages():
     asset_dir = ROOT / "packaging/desktop"
-    assert "<svg" in (asset_dir / "icon.svg").read_text()
+    svg = (asset_dir / "icon.svg").read_text()
+    assert "<svg" in svg and "VTS application icon" in svg
+    assert all(color in svg for color in ("#f3efe9", "#ff6752", "#ffa25c", "#211d19"))
     png = (asset_dir / "icon.png").read_bytes()
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
     assert struct.unpack(">II", png[16:24]) == (1024, 1024)
