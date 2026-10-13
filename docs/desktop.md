@@ -139,8 +139,8 @@ SHA256SUMS
 `workflow_dispatch` 可选择已有 Tag 的 `build`（只构建）或 `draft`（上传核验但不公开）。
 不要移动已发布 Tag。失败重跑可补全 draft；已公开 Release 只允许验证相同内容，
 不同附件/内容会拒绝覆盖。draft 中额外旧附件也会阻断发布。预发布只推版本镜像，
-不改 `latest`。Docker 失败保留 Release，重跑失败镜像 Job。首次正式 Tag 前仍需审查
-PR、完成双平台 CI 和干净机器首次安装验收。
+不改 `latest`。Docker 失败保留 Release，重跑失败镜像 Job。后续 Tag 发布仍需审查
+PR、完成双平台 CI，并补充干净机器的首次安装验收。
 
 ## 当前验证记录与待验收项
 
@@ -156,7 +156,8 @@ PR、完成双平台 CI 和干净机器首次安装验收。
 Windows 首次媒体源码编译约 13 分钟（冻结另计），
 两者构建范围不同。`build/desktop/metrics.json` 按各产物记录字节数和本次总构建时长。
 
-Windows EXE 安装卸载和 Tag/draft Release 全流程仍待验收；
+已发布的 `v0.4.1` 在 [Release 工作流](https://github.com/soloworktop/vts/actions/runs/38054550847)
+中通过 Windows EXE 静默安装/卸载、macOS DMG 挂载复制、两平台原生 WebView 和安装产物
+smoke。该结果来自 GitHub 托管 runner，不能证明全新 Windows 机器已具备 WebView2 Runtime。
 干净 Windows 11 与 macOS 14+ 下载首开、SmartScreen/Gatekeeper 的人工验收仍需完成。
 联网站点和实际 BYOK 服务受端点变化影响，应另外使用现有 live 测试开关验收。
-以上待验收项未通过前，不发布首个正式桌面版本。
