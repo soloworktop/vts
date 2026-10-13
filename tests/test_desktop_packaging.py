@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import struct
 from pathlib import Path
 import pytest
 from scripts.build_desktop import fetch_verified
@@ -52,6 +53,22 @@ def test_freezing_has_explicit_resources_and_hashed_locks():
         assert "pyinstaller==6.22.3" in lock and "pywebview==6.2.1" in lock
         assert "cryptography==50.0.2" in lock
         assert not re.search(r"^\w+[<>=]([^=]|$)", lock, re.M)
+
+
+def test_desktop_icon_assets_are_wired_into_both_packages():
+    asset_dir = ROOT / "packaging/desktop"
+    svg = (asset_dir / "icon.svg").read_text()
+    assert "<svg" in svg and "VTS application icon" in svg
+    assert all(color in svg for color in ("#f3efe9", "#ff6752", "#ffa25c", "#211d19"))
+    png = (asset_dir / "icon.png").read_bytes()
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert struct.unpack(">II", png[16:24]) == (1024, 1024)
+    ico = (asset_dir / "icon.ico").read_bytes()
+    assert struct.unpack("<HHH", ico[:6]) == (0, 1, 6)
+    assert (asset_dir / "icon.icns").read_bytes()[:4] == b"icns"
+    spec = (asset_dir / "vts.spec").read_text()
+    assert "icon.ico" in spec and "icon.icns" in spec
+    assert "SetupIconFile" in (asset_dir / "windows/installer.iss").read_text()
 
 
 def test_compiler_location_uses_actual_environment(monkeypatch, tmp_path):

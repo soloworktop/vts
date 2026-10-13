@@ -25,10 +25,12 @@ a = Analysis([str(root / "src/video_to_summary/desktop/__main__.py")], pathex=[s
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VTS", debug=False,
           bootloader_ignore_signals=False, strip=False, upx=False, console=False,
+          icon=str(root / "packaging/desktop/icon.ico") if sys.platform == "win32" else None,
           version=str(root / "build/desktop/windows-version.txt") if sys.platform == "win32" else None,
           target_arch="arm64" if sys.platform == "darwin" else None)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="VTS")
 if sys.platform == "darwin":
     info = plistlib.loads((root / "packaging/desktop/macos/Info.plist").read_bytes())
     info.update(CFBundleShortVersionString=metadata["macos"], CFBundleVersion=metadata["macos"], VTSDisplayVersion=metadata["display"], VTSGitSHA=metadata["sha"])
-    app = BUNDLE(coll, name="VTS.app", bundle_identifier=info["CFBundleIdentifier"], info_plist=info)
+    app = BUNDLE(coll, name="VTS.app", bundle_identifier=info["CFBundleIdentifier"],
+                 icon=str(root / "packaging/desktop/icon.icns"), info_plist=info)
