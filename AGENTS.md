@@ -32,7 +32,7 @@ scripts/                        run.sh（CLI）/ web.sh（Web）/ e2e.sh / docke
 docker/                          Docker 多阶段部署（Dockerfile / compose / README，见 docker/README.md）
 examples/                        用法示例（基础 / 本地音频 / 自定义后端等）
 .github/workflows/oss-guard.yml  CI：构建前端 → pytest → 禁词 lint
-.github/workflows/release.yml    发布：tag 触发 → 打包 wheel/sdist（先构建前端 + 注入 tag 版本）+ wheel 冒烟 → GitHub Release + ghcr 镜像
+.github/workflows/release.yml    发布：tag 触发 → Python 包 smoke → Windows/macOS 安装器 smoke → 附件校验与 GitHub Release → GHCR 镜像
 ```
 
 ## 铁律

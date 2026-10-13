@@ -1,6 +1,7 @@
 # VTS — Video to Summary
 
-> 把视频链接（YouTube / B 站等任意 yt-dlp 支持的站点）或本地音频，变成结构化 Markdown 笔记。
+> 把视频链接（YouTube / B 站等 yt-dlp 支持的站点）、本地音频（Web/桌面）或
+> 本地视频（桌面）变成结构化 Markdown 笔记。
 
 **字幕优先 · 本地自部署 · BYOK（自带 Key）· Markdown-first**
 
@@ -19,12 +20,14 @@
 ## 桌面客户端
 
 桌面端复用现有 Web 界面，目标平台为 Windows 11 x64 与 macOS 14+ Apple Silicon。
-安装包下载入口：[GitHub Releases](https://github.com/soloworktop/vts/releases)（选择带
-桌面附件的版本）。支持 URL、本地音频/视频、原生选择与保存、产物打开和退出后恢复。
+安装包下载入口：[v0.4.1 Release](https://github.com/soloworktop/vts/releases/tag/v0.4.1)
+（含 Windows 安装器和 macOS DMG）。支持 URL、本地音频/视频、原生选择与保存、产物
+打开和退出后恢复。
 数据独立保存，升级/卸载保留数据；首次在设置中填写自备 OpenAI 兼容端点。
 Windows 需要 WebView2 Runtime；首版无发布者签名、公证或自动更新。
-安装、备份、开发和发布门禁见 [桌面指南](docs/desktop.md)。Windows 和干净机器首开
-验收尚未完成，首个正式桌面版本须在这些门禁通过后发布。
+安装、备份、开发和发布说明见 [桌面指南](docs/desktop.md)。正式安装包已通过双平台 CI
+安装与原生 WebView 检查；干净 Windows 11/macOS 14+ 机器的首次下载打开及系统拦截体验
+仍待人工验收。
 
 ## 为什么是 VTS
 
@@ -40,8 +43,8 @@ VTS 面向想把长视频变成可复用的个人知识、又不想依赖第三�
   `api_key` / `model`；
 - **Markdown-first**：产物是普通文件（Markdown / TXT / SRT），可编辑、可检索、可版本
   化、可整体带走；
-- **开放与可迁移**：MIT 开源，Web 控制台与 CLI 双形态；数据与产物是不绑定任何特定
-  服务的标准文件，可随时导出、迁移。
+- **开放与可迁移**：MIT 开源，提供桌面客户端、Web 控制台与 CLI 三种入口；数据与产物
+  是不绑定特定服务的标准文件，可随时导出、迁移。
 
 ## 核心特性
 
@@ -62,18 +65,19 @@ VTS 面向想把长视频变成可复用的个人知识、又不想依赖第三�
 flowchart LR
     A["视频 URL"] --> B{"自带字幕？"}
     B -- "有" --> C["直接使用字幕文本<br/>不下载音频 · 不调 ASR"]
-    B -- "无" --> D["下载音频<br/>→ ASR 转写"]
-    L["本地音频文件"] --> D
+    B -- "无" --> D["准备音频<br/>→ ASR 转写"]
+    L["本地音频（Web / 桌面）"] --> D
+    V["本地视频（桌面）"] --> D
     C --> E{"配置了 LLM Key？"}
     D --> E
     E -- "有" --> F["结构化 Markdown 笔记"]
-    E -- "无" --> G["仅产出转写原文<br/>（任务仍成功）"]
+    E -- "无" --> G["保留转写原文与提示性 Markdown<br/>（任务仍成功）"]
 ```
 
 - **字幕优先**：URL 视频自带字幕时直接使用字幕文本当转写稿，不下载音频、不调用 ASR
   ——更快，也没有转写失真；
-- **没配 LLM Key 也不是失败**：跳过总结，仍产出转写原文（`.txt` / `.srt`）；之后补上
-  Key 点「重新生成」即可拿到完整笔记。
+- **没配 LLM Key 也不是失败**：跳过总结，仍产出转写原文 `.txt` 和说明原因的
+  `.summary.md`；仅在有时间轴时生成 `.srt`。之后补上 Key 点「重新生成」即可拿到完整笔记。
 
 ---
 
@@ -119,7 +123,7 @@ bash scripts/web.sh                      # 打开 http://127.0.0.1:8080
 
 > 只想用 CLI、不做本地开发？直接安装
 > [Release](https://github.com/soloworktop/vts/releases) 里的发行包（尚未发布 PyPI）：
-> `pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl`。
+> `pip install https://github.com/soloworktop/vts/releases/download/v0.4.1/vts-0.4.1-py3-none-any.whl`。
 > 原生 Windows 没有 bash：直接运行 `python -m video_to_summary.main`，或使用 WSL。
 
 ---

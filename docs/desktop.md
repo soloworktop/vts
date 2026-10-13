@@ -6,7 +6,8 @@
 
 ## 安装与使用
 
-在 [GitHub Releases](https://github.com/soloworktop/vts/releases) 中选择带桌面附件的版本：
+首个正式桌面版本是 [v0.4.1](https://github.com/soloworktop/vts/releases/tag/v0.4.1)。
+后续版本从 [GitHub Releases](https://github.com/soloworktop/vts/releases) 下载带桌面附件的版本：
 
 - Windows：`vts-<tag>-windows-x64-setup.exe`，用户级安装到用户 Programs 目录，
   无需管理员权限。另需 Microsoft **WebView2 Evergreen Runtime**，安装 Edge 浏览器
@@ -139,24 +140,28 @@ SHA256SUMS
 `workflow_dispatch` 可选择已有 Tag 的 `build`（只构建）或 `draft`（上传核验但不公开）。
 不要移动已发布 Tag。失败重跑可补全 draft；已公开 Release 只允许验证相同内容，
 不同附件/内容会拒绝覆盖。draft 中额外旧附件也会阻断发布。预发布只推版本镜像，
-不改 `latest`。Docker 失败保留 Release，重跑失败镜像 Job。首次正式 Tag 前仍需审查
-PR、完成双平台 CI 和干净机器首次安装验收。
+不改 `latest`。Docker 失败保留 Release，重跑失败镜像 Job。发布前应审查 PR、
+完成双平台 CI，并记录干净机器首次安装验收结果。
 
 ## 当前验证记录与待验收项
 
-离线全量回归 526 个用例通过（排除 9 个 live/network 用例），前端类型检查与禁词门禁
-通过。两个工作流通过 actionlint；全新哈希锁安装及 wheel/sdist 非 editable smoke 通过。
+[v0.4.1 Release](https://github.com/soloworktop/vts/releases/tag/v0.4.1) 已公开。
+[Tag 发布工作流](https://github.com/soloworktop/vts/actions/runs/38054550847) 的版本校验、
+离线/UI 测试、wheel/sdist 安装 smoke、Windows x64 安装器、macOS arm64 DMG、
+四附件汇总与 `SHA256SUMS`、Release 上传核验及 GHCR amd64/arm64 镜像均成功。
+Windows CI 对最终 EXE 执行静默安装、原生 WebView2/桥调用、FFmpeg 转换与子进程
+回收检查，随后静默卸载；macOS CI 从最终 DMG 挂载复制 `.app`，执行真实
+WKWebView/桥调用与同类检查。安装包还扫描 `.env`、密钥、数据库和用户产物。
 
-本机 macOS arm64 已通过 `.app` 和 DMG 挂载复制后的真实 WKWebView、React 初始化、
+本机 macOS arm64 也已通过 `.app` 和 DMG 挂载复制后的真实 WKWebView、React 初始化、
 原生桥/剪贴板、Fernet、SQLite FTS5、health/版本/JS/CSS/手册、FFmpeg 音频转换及退出
-回收检查。开发 DMG 约 55 MiB；本次含版本元数据校准的缓存冻结加 DMG 约 61 秒。
-最新 Windows/macOS CI 各 84 项桌面测试通过，真实 WebView2/WKWebView、桥/剪贴板、
-手册、包版本及退出时后端与持续运行的 FFmpeg 子进程回收均通过。缓存冻结耗时分别
-为 36/37 秒；首轮 macOS CI 冷构建（FFmpeg 编译加冻结）为 275 秒，
-Windows 首次媒体源码编译约 13 分钟（冻结另计），
-两者构建范围不同。`build/desktop/metrics.json` 按各产物记录字节数和本次总构建时长。
+回收检查。开发 DMG 约 55 MiB；缓存冻结加 DMG 约 61 秒。首轮 macOS CI 冷构建
+（FFmpeg 编译加冻结）为 275 秒，Windows 首次媒体源码编译约 13 分钟（冻结另计）。
+这些数字是相应构建的实测值，不是安装包大小或构建耗时承诺；
+`build/desktop/metrics.json` 会记录本次产物字节数和总构建时长。
 
-Windows EXE 安装卸载和 Tag/draft Release 全流程仍待验收；
-干净 Windows 11 与 macOS 14+ 下载首开、SmartScreen/Gatekeeper 的人工验收仍需完成。
-联网站点和实际 BYOK 服务受端点变化影响，应另外使用现有 live 测试开关验收。
-以上待验收项未通过前，不发布首个正式桌面版本。
+`v0.4.0` Tag 的 macOS 发布 smoke 曾因退出时的进程组权限错误失败，未公开 Release；
+修复经 [PR #2](https://github.com/soloworktop/vts/pull/2) 合入后发布了 `v0.4.1`，
+旧 Tag 未移动。`workflow_dispatch` 的单独 `draft` 模式尚未演练。
+干净 Windows 11 与 macOS 14+ 机器首次下载打开、SmartScreen/Gatekeeper 的人工验收
+仍需完成；真实站点和 BYOK 端点需按现有 live 测试开关另行验收。

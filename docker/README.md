@@ -163,9 +163,8 @@ bash scripts/docker.sh up
 
 ### 附录：从旧 `docker_` 前缀卷迁移（仅历史部署需要）
 
-> 本项目尚未发布、无存量用户，此次固定项目名对全新部署是零迁移成本；下述步骤仅供
-> 内部/早期部署者对照。**若你之前用未固定项目名的版本跑过**，旧卷前缀为 `docker_`
-> （即 `docker_vts_data` / `docker_vts_output`），请先迁移数据、确认无误后再删旧卷——
+> 固定项目名之前部署的实例可能仍使用旧卷。**若你之前用未固定项目名的版本跑过**，
+> 旧卷前缀为 `docker_`（即 `docker_vts_data` / `docker_vts_output`），请先迁移数据、确认无误后再删旧卷——
 > 直接删除会静默丢掉 `/data` 卷里已配置的 LLM 凭据（SQLite + `enc_key`）与全部历史任务。
 > 删除条件：待早期部署窗口过去、确认已无 `docker_` 前缀卷存量后，本节可整体移除。
 
@@ -288,7 +287,8 @@ VTS_PORT=8080 docker compose -f docker/docker-compose.yml up -d --build
 | `APT_MIRROR` | stage2 `apt-get update`/`install` 的 Debian apt 镜像源。**建议只填 host**（如 `https://mirrors.tuna.tsinghua.edu.cn`，镜像会把 `/debian` 路径自动拼回），也接受带 `/debian` 后缀或尾部 `/` 的地址——由 `docker/setup-apt-mirror.sh` 构建期自动归一化（去尾部 `/`、再去尾部 `/debian`），不会产生 `debian/debian` 路径重复 | 空 = Debian 官方源 |
 | `PIP_INDEX_URL` | stage2 `pip install` 的 `--index-url`（PyPI 镜像源） | 空 = PyPI 官方源 |
 | `NPM_REGISTRY` | stage1 npm/pnpm 的 `--registry`（npm 镜像源） | 空 = npm 官方源 |
-| `VIDEO_TO_SUMMARY_VERSION` | 注入镜像的**版本号**（构建期 build-arg，同时固化为运行期 env；`version.py` 的 env 优先级最高，非空即返回）。发布流水线传 git tag（如 `v0.3.0`），本地构建留空 | 空 = 回落包元数据/开发态 |
+| `VIDEO_TO_SUMMARY_VERSION` | 注入镜像的**展示版本号**（构建期 build-arg，同时固化为运行期 env；`version.py` 的 env 优先级最高，非空即返回）。发布流水线传 git tag（如 `v0.4.1`），本地构建留空 | 空 = 回落包元数据/开发态 |
+| `VTS_PACKAGE_VERSION` | 无 Git 构建上下文中的 Python 包元数据版本；发布流水线传规范化版本（如 `0.4.1`），与 Tag 对应 | `0.0.0.dev0` |
 
 ---
 

@@ -9,7 +9,7 @@
 - **源码开发**：`pip install -e .`
 - **发行包**（尚未发布 PyPI）：从
   [Release](https://github.com/soloworktop/vts/releases) 附件安装，例如
-  `pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl`
+  `pip install https://github.com/soloworktop/vts/releases/download/v0.4.1/vts-0.4.1-py3-none-any.whl`
 - **免手动建环境**：`bash scripts/run.sh "<视频链接>"`——自动建 venv、装依赖再调用，
   参数原样转发
 

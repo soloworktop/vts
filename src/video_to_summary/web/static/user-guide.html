@@ -472,7 +472,7 @@ footer{
       <!-- 07 数据与隐私 -->
       <section id="desktop">
         <div class="sec-head"><span class="num">桌面</span><h2>桌面客户端</h2></div>
-        <p>桌面目标为 Windows 11 x64 与 macOS 14+ Apple Silicon。Windows 另需 Microsoft WebView2 Runtime；首版无发布者签名、公证或自动更新。</p>
+        <p>桌面安装包和 SHA256SUMS 可从 <a href="https://github.com/soloworktop/vts/releases">GitHub Releases</a> 获取，支持 Windows 11 x64 与 macOS 14+ Apple Silicon。Windows 另需 Microsoft WebView2 Runtime；首版无发布者签名、公证或自动更新。</p>
         <p>首次在设置中填写 OpenAI 兼容推理与语音识别端点；不会继承源码目录的 .env。需要迁移时把 .env 放到桌面数据库目录后显式导入。历史 ZIP 不迁移 Key 或全局配置。</p>
         <p>原生选择器支持本地音频与视频；任务准备 MP3/WAV，原文件不会修改。关闭窗口先处理未保存编辑稿，再确认退出；未完成任务下次启动恢复，已取消任务保持取消。重试会清空产物，恢复则复用完整缓存。</p>
         <p>数据位于 Windows 的 %LOCALAPPDATA%\VTS\desktop\ 或 macOS 的 ~/Library/Application Support/VTS/desktop/，包含数据库、enc_key、output、日志与 WebView 数据。关闭应用后备份整个目录和原始媒体；升级/卸载默认保留数据。Key 必须连同 enc_key 备份。</p>

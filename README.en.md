@@ -1,7 +1,7 @@
 # VTS — Video to Summary
 
-> Turn any video URL (YouTube, Bilibili, or any site yt-dlp supports) or a local audio
-> file into structured Markdown notes.
+> Turn a video URL (YouTube, Bilibili, or any site yt-dlp supports), local audio
+> (Web/desktop), or local video (desktop) into structured Markdown notes.
 
 **Subtitle-first · Self-hosted · BYOK · Markdown-first**
 
@@ -20,14 +20,15 @@
 ## Desktop client
 
 The desktop client reuses the Web UI and targets Windows 11 x64 and macOS 14+ Apple Silicon.
-Download desktop attachments from [GitHub Releases](https://github.com/soloworktop/vts/releases)
-when available. It supports URLs, local audio/video, native file dialogs, opening products,
-and resuming unfinished jobs after exit. Data lives separately from the installed application;
-upgrades and uninstall preserve it. Configure your own OpenAI-compatible endpoints in Settings.
+Download the Windows installer or macOS DMG from the
+[v0.4.1 Release](https://github.com/soloworktop/vts/releases/tag/v0.4.1). It supports URLs,
+local audio/video, native file dialogs, opening products, and resuming unfinished jobs
+after exit. Data lives separately from the installed application; upgrades and uninstall preserve it. Configure your own OpenAI-compatible endpoints in Settings.
 Windows requires WebView2 Runtime. The first release has no publisher signature, notarization,
 or automatic updater. See the [desktop guide](docs/desktop.md) for development, backup and
-release checks. Windows and clean-machine first-launch acceptance remain pending; the first
-formal desktop release requires those checks to pass.
+release checks. The installers passed Windows and macOS CI installation and native WebView
+checks; first download and launch on clean Windows 11/macOS 14+ machines, including OS warnings,
+still need manual acceptance.
 
 ## Why VTS
 
@@ -47,9 +48,8 @@ without handing it to a third-party SaaS:
   `base_url` / `api_key` / `model`;
 - **Markdown-first** — artifacts are plain files (Markdown / TXT / SRT): editable,
   searchable, versionable, and portable;
-- **Open & portable** — MIT licensed, web console and CLI in one project; your data and
-  artifacts are standard files not tied to any specific service, ready to export or
-  migrate anytime.
+- **Open & portable** — MIT licensed, with desktop, Web, and CLI entry points. Your data
+  and artifacts are standard files, ready to export or migrate anytime.
 
 ## Features
 
@@ -70,20 +70,21 @@ without handing it to a third-party SaaS:
 flowchart LR
     A["Video URL"] --> B{"Has subtitles?"}
     B -- "Yes" --> C["Use subtitle text<br/>no audio download · no ASR"]
-    B -- "No" --> D["Download audio<br/>→ ASR transcribe"]
-    L["Local audio file"] --> D
+    B -- "No" --> D["Prepare audio<br/>→ ASR transcribe"]
+    L["Local audio (Web / desktop)"] --> D
+    V["Local video (desktop)"] --> D
     C --> E{"LLM key configured?"}
     D --> E
     E -- "Yes" --> F["Structured Markdown note"]
-    E -- "No" --> G["Transcript only<br/>(job still succeeds)"]
+    E -- "No" --> G["Transcript and explanatory Markdown<br/>(job still succeeds)"]
 ```
 
 - **Subtitle-first**: when a URL video has subtitles, the subtitle text is used directly
   as the transcript — no audio download, no ASR call — faster, and no transcription
   drift;
 - **No LLM key yet? The job still succeeds**: summarization is skipped and you still get
-  the raw transcript (`.txt` / `.srt`); add a key later and hit "Regenerate" for the full
-  note.
+  the raw transcript (`.txt`) and an explanatory Markdown file; an SRT is available only when
+  timing data exists. Add a key later and hit "Regenerate" for the full note.
 
 ---
 
@@ -131,7 +132,7 @@ bash scripts/web.sh                      # open http://127.0.0.1:8080
 
 > Just want the CLI, no local development? Install the distribution wheel from
 > [Releases](https://github.com/soloworktop/vts/releases) (not on PyPI yet):
-> `pip install https://github.com/soloworktop/vts/releases/download/v0.1.0/vts-0.1.0-py3-none-any.whl`.
+> `pip install https://github.com/soloworktop/vts/releases/download/v0.4.1/vts-0.4.1-py3-none-any.whl`.
 > Native Windows has no bash: run `python -m video_to_summary.main` directly, or use WSL.
 
 ---
