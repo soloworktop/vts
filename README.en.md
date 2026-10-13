@@ -26,8 +26,8 @@ and resuming unfinished jobs after exit. Data lives separately from the installe
 upgrades and uninstall preserve it. Configure your own OpenAI-compatible endpoints in Settings.
 Windows requires WebView2 Runtime. The first release has no publisher signature, notarization,
 or automatic updater. See the [desktop guide](docs/desktop.md) for development, backup and
-release checks. Windows and clean-machine first-launch acceptance remain pending; the first
-formal desktop release requires those checks to pass.
+release checks. The release workflow verifies the Windows installer and macOS DMG; first launch
+and system security prompts on clean machines still need manual validation.
 
 ## Why VTS
 
