@@ -239,3 +239,4 @@ class Settings:
 # Desktop lifecycle defaults (seconds).
 DESKTOP_START_TIMEOUT = 30
 DESKTOP_STOP_TIMEOUT = 15
+DESKTOP_BRIDGE_EXIT_DELAY = 0.5

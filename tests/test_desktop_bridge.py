@@ -27,6 +27,27 @@ def test_untrusted_pages_rejected(bridge):
             call()
 
 
+def test_exit_waits_for_bridge_response(bridge, monkeypatch):
+    scheduled = []
+    closed = []
+
+    class Timer:
+        def __init__(self, delay, callback):
+            scheduled.append((delay, callback))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("video_to_summary.desktop.bridge.threading.Timer", Timer)
+    bridge._on_exit = lambda: closed.append(True)
+    assert bridge.request_exit("example-session") is True
+    assert bridge.request_exit("example-session") is True
+    assert len(scheduled) == 1
+    assert closed == []
+    scheduled[0][1]()
+    assert closed == [True]
+
+
 @pytest.mark.parametrize("url", ["https://example.test/api/v1/jobs/export", "//example.test/api/v1/logs/export",
     "/api/v1/health", "/api/v1/logs/export?token=x", "/api/v1/jobs/export#fragment",
     "/api/v1/jobs/" + "a" * 32 + "/export?path=x&format=md&format=md"])

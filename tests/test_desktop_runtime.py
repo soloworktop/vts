@@ -150,3 +150,64 @@ def test_process_tree_reports_group_permission_while_backend_alive(monkeypatch):
     with pytest.raises(PermissionError):
         tree.close()
     assert process.killed
+
+
+def test_native_closing_returns_before_webview_evaluation():
+    import threading
+    import time
+    from types import SimpleNamespace
+    from video_to_summary.desktop.app import _CloseCoordinator
+
+    ui_thread = threading.get_ident()
+    release_js = threading.Event()
+    dispatched = threading.Event()
+    approved = threading.Event()
+
+    class Window:
+        events = SimpleNamespace(loaded=SimpleNamespace(is_set=lambda: True))
+
+        def evaluate_js(self, script):
+            assert threading.get_ident() != ui_thread
+            assert release_js.wait(2)
+            if "__APP_READY__" in script:
+                return True
+            dispatched.set()
+
+        def create_confirmation_dialog(self, title, message):
+            raise AssertionError("ready page must handle its own close confirmation")
+
+    coordinator = _CloseCoordinator(Window(), approved, lambda: approved.set())
+    started = time.monotonic()
+    assert coordinator.closing() is False
+    assert time.monotonic() - started < 0.5
+    release_js.set()
+    assert dispatched.wait(2)
+    approved.set()
+    assert coordinator.closing() is True
+
+
+def test_native_closing_uses_dialog_before_page_is_ready():
+    import threading
+    from types import SimpleNamespace
+    from video_to_summary.desktop.app import _CloseCoordinator
+
+    approved = threading.Event()
+    exited = threading.Event()
+
+    class Window:
+        events = SimpleNamespace(loaded=SimpleNamespace(is_set=lambda: False))
+
+        def evaluate_js(self, script):
+            raise AssertionError("unloaded page must not be evaluated")
+
+        def create_confirmation_dialog(self, title, message):
+            return True
+
+    def exit_window():
+        approved.set()
+        exited.set()
+
+    coordinator = _CloseCoordinator(Window(), approved, exit_window)
+    assert coordinator.closing() is False
+    assert exited.wait(2)
+    assert coordinator.closing() is True
