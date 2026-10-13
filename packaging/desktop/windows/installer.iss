@@ -5,6 +5,7 @@ AppName=VTS
 AppVersion={#DisplayVersion}
 VersionInfoVersion={#NumericVersion}
 AppPublisher=VTS contributors
+SetupIconFile={#SourcePath}\..\icon.ico
 DefaultDirName={localappdata}\Programs\VTS
 DefaultGroupName=VTS
 PrivilegesRequired=lowest
