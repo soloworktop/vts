@@ -8,6 +8,38 @@ import json
 from pathlib import Path
 
 
+class _CloseCoordinator:
+    """Return from the native close callback before calling WebView APIs."""
+
+    def __init__(self, window, approved_exit, exit_window):
+        self.window = window
+        self.approved_exit = approved_exit
+        self.exit_window = exit_window
+        self._checking = threading.Event()
+
+    def closing(self):
+        if self.approved_exit.is_set():
+            return True
+        if not self._checking.is_set():
+            self._checking.set()
+            threading.Thread(target=self._check, daemon=True).start()
+        return False
+
+    def _check(self):
+        try:
+            if self.window.events.loaded.is_set():
+                try:
+                    if self.window.evaluate_js("Boolean(window.__APP_READY__)"):
+                        self.window.evaluate_js('window.dispatchEvent(new CustomEvent("vts:desktop-close"))')
+                        return
+                except Exception:
+                    pass
+            if self.window.create_confirmation_dialog("退出 VTS", "退出后未完成任务将在下次启动恢复。确认退出？"):
+                self.exit_window()
+        finally:
+            self._checking.clear()
+
+
 def main():
     multiprocessing.freeze_support()
     parser = argparse.ArgumentParser(prog="vts-desktop")
@@ -34,20 +66,8 @@ def main():
         bridge = Bridge(backend, exit_window)
         window = webview.create_window("VTS", backend.origin, js_api=bridge, width=1200, height=800, min_size=(850, 600))
         bridge._window = window
-        def closing():
-            if approved_exit.is_set():
-                return True
-            try:
-                if window.evaluate_js("Boolean(window.__APP_READY__)"):
-                    window.evaluate_js("window.dispatchEvent(new CustomEvent(\"vts:desktop-close\"))")
-                    return False
-            except Exception:
-                pass
-            if window.create_confirmation_dialog("退出 VTS", "退出后未完成任务将在下次启动恢复。确认退出？"):
-                approved_exit.set()
-                return True
-            return False
-        window.events.closing += closing
+        close_coordinator = _CloseCoordinator(window, approved_exit, exit_window)
+        window.events.closing += close_coordinator.closing
         def monitor():
             backend.process.join()
             if not approved_exit.is_set() and backend.process.exitcode and window.create_confirmation_dialog("本地服务已退出", "请重新启动 VTS；诊断日志位于 " + str(paths.logs)):
@@ -56,6 +76,7 @@ def main():
         threading.Thread(target=monitor, daemon=True).start()
         if args.desktop_gui_smoke:
             def gui_probe():
+                verified = False
                 try:
                     deadline = time.monotonic() + 30
                     while time.monotonic() < deadline:
@@ -75,6 +96,7 @@ def main():
                     while time.monotonic() < deadline:
                         if window.evaluate_js("Boolean(window.__DESKTOP_SMOKE_OK__)"):
                             args.desktop_gui_smoke.write_text(json.dumps({"ok": True, "gui": True, "bridge": True, "version": backend.version, "checks": backend.checks, "backend_pid": backend.process.pid, "media_probe_pid": backend.media_probe_pid}), encoding="utf-8")
+                            verified = True
                             break
                         time.sleep(0.1)
                     else:
@@ -82,8 +104,11 @@ def main():
                 except Exception as exc:
                     args.desktop_gui_smoke.write_text(json.dumps({"ok": False, "error": str(exc)}), encoding="utf-8")
                 finally:
-                    approved_exit.set()
-                    window.destroy()
+                    if not verified:
+                        approved_exit.set()
+                        window.destroy()
+                    else:
+                        close_coordinator.closing()
             window.events.loaded += lambda: threading.Thread(target=gui_probe, daemon=True).start()
         webview.start(gui="edgechromium" if sys.platform == "win32" else "cocoa", storage_path=str(paths.webview), private_mode=False)
     except Exception as exc:

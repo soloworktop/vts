@@ -6,11 +6,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, urljoin
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
 
+from ..config import DESKTOP_BRIDGE_EXIT_DELAY
 from ..utils import subprocess_no_window_kwargs
 
 
@@ -25,6 +27,8 @@ class Bridge:
         self._on_exit = on_exit
         self._window = None
         self._saved = set()
+        self._exit_lock = threading.Lock()
+        self._exit_requested = False
 
     def _check(self, proof, *, bootstrap=False):
         if self._window is None:
@@ -206,5 +210,13 @@ class Bridge:
 
     def request_exit(self, proof=""):
         self._check(proof)
-        self._on_exit()
+        with self._exit_lock:
+            if self._exit_requested:
+                return True
+            self._exit_requested = True
+        # pywebview sends this method's result back through evaluate_js. Closing
+        # the native window here strands that non-daemon bridge thread on macOS.
+        timer = threading.Timer(DESKTOP_BRIDGE_EXIT_DELAY, self._on_exit)
+        timer.daemon = True
+        timer.start()
         return True
